@@ -2,7 +2,7 @@ import math
 import sys
 from PyQt6.QtWidgets import QWidget, QApplication
 from PyQt6.QtCore import Qt, QObject, pyqtSignal, QTimer, QPropertyAnimation, QEasingCurve, QPoint, QRectF
-from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QFont, QFontMetrics, QLinearGradient
+from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QFont, QFontMetrics, QLinearGradient, QPainterPath
 
 from themes import get_theme
 
@@ -195,7 +195,7 @@ class ModernHUD(QWidget):
         painter.setBrush(QBrush(top_grad))
         painter.drawRoundedRect(card_rect.adjusted(2, 1, -2, -22), self.radius - 1, self.radius - 1)
 
-        # 5. Dynamic Organic Waveform (5 Bars based on Theme)
+        # 5. Dynamic Organic Waveform or Vector Indicators (Zero Emojis)
         center_y = card_rect.center().y()
         start_x = card_rect.left() + 20.0
         gap = 5.2
@@ -222,18 +222,27 @@ class ModernHUD(QWidget):
                 painter.drawRoundedRect(QRectF(bx, by, bar_w, h), 1.4, 1.4)
                 
         elif self.state == "processing":
-            painter.setPen(QPen(QColor(167, 139, 250), 1.5))
-            font = QFont("Segoe UI", 11, QFont.Weight.Bold)
-            painter.setFont(font)
-            painter.drawText(QRectF(card_rect.left() + 16, card_rect.top(), 30, self.card_h), Qt.AlignmentFlag.AlignCenter, "✦")
+            # Clean vector pulsing ring
+            cx = card_rect.left() + 30.0
+            cy = center_y
+            pulse_r = 5.0 + 1.5 * math.sin(self.phase * 1.5)
+            painter.setPen(QPen(QColor(167, 139, 250), 1.6))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(QPoint(int(cx), int(cy)), int(pulse_r), int(pulse_r))
             
         elif self.state == "done":
-            painter.setPen(QPen(QColor(52, 211, 153), 1.6))
-            font = QFont("Segoe UI", 11, QFont.Weight.Bold)
-            painter.setFont(font)
-            painter.drawText(QRectF(card_rect.left() + 16, card_rect.top(), 30, self.card_h), Qt.AlignmentFlag.AlignCenter, "✓")
+            # Clean vector checkmark path
+            cx = card_rect.left() + 30.0
+            cy = center_y
+            painter.setPen(QPen(QColor(52, 211, 153), 2.0, cap=Qt.PenCapStyle.RoundCap, join=Qt.PenJoinStyle.RoundJoin))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            path = QPainterPath()
+            path.moveTo(cx - 5.0, cy)
+            path.lineTo(cx - 1.0, cy + 4.0)
+            path.lineTo(cx + 6.0, cy - 4.0)
+            painter.drawPath(path)
 
-        # 6. Live Text
+        # 6. Live Text (Zero Emojis, Clean Typography)
         text_x = card_rect.left() + 54
         text_w = self.card_w - 54 - 20
         text_rect = QRectF(text_x, card_rect.top(), text_w, self.card_h)

@@ -43,7 +43,6 @@ state_lock = threading.Lock()
 current_target_key = None
 
 def parse_target_key(hotkey_str: str):
-    """Maps hotkey string to pynput Key or KeyCode."""
     name = hotkey_str.lower().strip()
     special_keys = {
         "f1": keyboard.Key.f1,
@@ -77,13 +76,11 @@ def is_target_key(key) -> bool:
     return False
 
 def on_live_text(raw_text: str):
-    """Real-time live speech callback with automatic punctuation formatting."""
     if bridge and raw_text:
         formatted = format_live_text(raw_text)
         bridge.sig_live_text.emit(formatted)
 
 def _process_final_audio_worker(wav_bytes: bytes, fallback_raw_text: str):
-    """Processes final high-accuracy transcription and injects text."""
     final_text = ""
     api_key = app_settings.get("groq_api_key", "").strip() or config.GROQ_API_KEY
 
@@ -94,15 +91,15 @@ def _process_final_audio_worker(wav_bytes: bytes, fallback_raw_text: str):
         if wav_bytes and api_key:
             final_text = transcribe_audio(wav_bytes)
     except STTError as e:
-        print(f"\n[!] Groq API: {e}. Переключаемся на локальный распознанный текст...")
+        print(f"\n[INFO] Groq API: {e}. Переключение на локальный текст...")
     except Exception as e:
-        print(f"\n[!] Ошибка: {e}. Переключаемся на локальный текст...")
+        print(f"\n[INFO] Ошибка: {e}. Переключение на локальный текст...")
 
     if not final_text and fallback_raw_text:
         final_text = format_live_text(fallback_raw_text)
 
     if final_text:
-        print(f"\n[OK] Готово: \"{final_text}\"")
+        print(f"\n[OK] \"{final_text}\"")
         insert_text(final_text)
         if bridge:
             bridge.sig_done.emit(final_text)
@@ -122,9 +119,8 @@ def on_press(key):
             return
         is_recording = True
 
-    # Soft pleasant rising harmonic chime
     if app_settings.get("sound_enabled", True):
-        play_start_sound(volume=0.32)
+        play_start_sound(volume=0.30)
 
     if bridge:
         bridge.sig_recording_started.emit()
@@ -147,9 +143,8 @@ def on_release(key):
             return
         is_recording = False
 
-    # Soft pleasant resolving harmonic tone
     if app_settings.get("sound_enabled", True):
-        play_stop_sound(volume=0.28)
+        play_stop_sound(volume=0.25)
 
     wav_bytes = recorder.stop()
     fallback_raw_text = stream_recognizer.stop() if stream_recognizer else ""
@@ -184,14 +179,13 @@ def on_settings_saved(new_settings: dict):
     config.GROQ_API_KEY = app_settings.get("groq_api_key", "").strip()
     on_theme_changed(app_settings.get("theme", "claude"))
     if tray:
-        tray.setToolTip(f"VoiceTyping (Активен: [{app_settings.get('hotkey', 'f8').upper()}])")
+        tray.setToolTip(f"VoiceTyping [{app_settings.get('hotkey', 'f8').upper()}]")
 
 def main():
     global hud, bridge, stream_recognizer, tray
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
-    # Initialize bridge and HUD
     bridge = AudioSignalBridge()
     hud = ModernHUD(theme_id=app_settings.get("theme", "claude"))
 
@@ -202,45 +196,52 @@ def main():
     bridge.sig_done.connect(hud.show_done)
     bridge.sig_hide.connect(hud.hide_hud)
 
-    # Setup System Tray Icon
+    # Setup System Tray without emojis
     theme = get_theme(app_settings.get("theme", "claude"))
     tray = QSystemTrayIcon(create_app_icon(theme["accent"]), app)
-    tray.setToolTip(f"VoiceTyping (Активен: [{app_settings.get('hotkey', 'f8').upper()}])")
+    tray.setToolTip(f"VoiceTyping [{app_settings.get('hotkey', 'f8').upper()}]")
 
     tray_menu = QMenu()
     tray_menu.setStyleSheet("""
         QMenu {
-            background-color: #1C1C22;
+            background-color: #16161C;
             color: #FAF8F5;
-            border: 1px solid #2B2B36;
+            border: 1px solid #282834;
             border-radius: 8px;
-            padding: 6px;
+            padding: 5px;
+            font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif;
+            font-size: 12px;
         }
         QMenu::item {
-            padding: 8px 20px;
-            border-radius: 6px;
+            padding: 7px 18px;
+            border-radius: 5px;
         }
         QMenu::item:selected {
-            background-color: #E06A38;
+            background-color: #262634;
             color: #FFFFFF;
+        }
+        QMenu::separator {
+            height: 1px;
+            background: #282834;
+            margin: 4px 8px;
         }
     """)
 
-    act_settings = QAction("⚙️ Настройки...", app)
+    act_settings = QAction("Параметры...", app)
     act_settings.triggered.connect(open_settings_dialog)
     tray_menu.addAction(act_settings)
 
-    act_info = QAction(f"🎙️ Голосовой ввод: [{app_settings.get('hotkey', 'f8').upper()}]", app)
+    act_info = QAction(f"Горячая клавиша: {app_settings.get('hotkey', 'f8').upper()}", app)
     act_info.setEnabled(False)
     tray_menu.addAction(act_info)
 
     tray_menu.addSeparator()
 
-    act_github = QAction("🌐 GitHub проекта", app)
+    act_github = QAction("Репозиторий GitHub", app)
     act_github.triggered.connect(lambda: webbrowser.open("https://github.com"))
     tray_menu.addAction(act_github)
 
-    act_quit = QAction("🚪 Выход", app)
+    act_quit = QAction("Выход", app)
     act_quit.triggered.connect(app.quit)
     tray_menu.addAction(act_quit)
 
@@ -248,18 +249,16 @@ def main():
     tray.activated.connect(lambda reason: open_settings_dialog() if reason == QSystemTrayIcon.ActivationReason.DoubleClick else None)
     tray.show()
 
-    # Load speech streaming recognizer in background
     def _init_vosk():
         global stream_recognizer
         stream_recognizer = StreamRecognizer(sample_rate=config.SAMPLE_RATE, lang="ru")
     threading.Thread(target=_init_vosk, daemon=True).start()
 
-    # Start keyboard listener
     listener = keyboard.Listener(on_press=on_press, on_release=on_release)
     listener.daemon = True
     listener.start()
 
-    # If first run without API key, show settings immediately
+    # Open clean settings dialog on first launch if key missing
     if not app_settings.get("groq_api_key", "").strip() and not config.GROQ_API_KEY:
         open_settings_dialog()
 
