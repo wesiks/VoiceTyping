@@ -52,15 +52,9 @@ def main():
         "--collect-all", "vosk",
         "--add-data", f"{venv_vosk};vosk",
         "--add-data", "app.ico;.",
-        "--add-data", "themes.py;.",
-        "--add-data", "live_punctuator.py;.",
-        "--add-data", "qt_overlay.py;.",
-        "--add-data", "settings_window.py;.",
-        "--add-data", "sound_signals.py;.",
-        "--add-data", "tray_icon.py;.",
-        "--add-data", "app_settings.py;.",
-        "--add-data", "font_loader.py;.",
+        "--add-data", "src;src",
         "--add-data", "fonts;fonts",
+        "--paths", "src",
         "main.py"
     ]
 

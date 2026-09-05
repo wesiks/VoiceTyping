@@ -16,6 +16,11 @@ from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QAction
 from pynput import keyboard
 
+# Add src to sys.path
+src_dir = Path(__file__).resolve().parent / "src"
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
+
 import config
 from app_settings import load_settings
 from themes import get_theme

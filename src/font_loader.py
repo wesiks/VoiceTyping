@@ -10,6 +10,7 @@ _INITIALIZED = False
 def _resolve_font(filename: str) -> Path | None:
     candidates = [
         Path(__file__).resolve().parent / "fonts" / filename,
+        Path(__file__).resolve().parent.parent / "fonts" / filename,
         Path(sys.executable).resolve().parent / "fonts" / filename,
         Path(sys.executable).resolve().parent / "_internal" / "fonts" / filename,
     ]

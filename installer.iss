@@ -3,8 +3,8 @@
 
 #define MyAppName "VoiceTyping"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "VoiceTyping Open Source"
-#define MyAppURL "https://github.com"
+#define MyAppPublisher "VoiceTyping"
+#define MyAppURL "https://github.com/wesiks/VoiceTyping"
 #define MyAppExeName "VoiceTyping.exe"
 
 [Setup]
@@ -19,6 +19,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=dist\installer
 OutputBaseFilename=VoiceTyping_Setup
+SetupIconFile=app.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
