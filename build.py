@@ -32,6 +32,7 @@ def main():
 
     # 3. Locate vosk in venv
     venv_vosk = base_dir / ".venv" / "Lib" / "site-packages" / "vosk"
+    icon_path = base_dir / "app.ico"
 
     cmd = [
         str(base_dir / ".venv" / "Scripts" / "pyinstaller.exe"),
@@ -39,8 +40,10 @@ def main():
         "--onedir",
         "--windowed",
         "--name", "VoiceTyping",
+        "--icon", str(icon_path),
         "--collect-all", "vosk",
         "--add-data", f"{venv_vosk};vosk",
+        "--add-data", "app.ico;.",
         "--add-data", "themes.py;.",
         "--add-data", "live_punctuator.py;.",
         "--add-data", "qt_overlay.py;.",
@@ -55,7 +58,6 @@ def main():
     ret = subprocess.run(cmd, cwd=base_dir)
 
     if ret.returncode == 0:
-        # Clean temporary build folder
         if build_dir.exists():
             try:
                 shutil.rmtree(build_dir)
@@ -68,7 +70,6 @@ def main():
         print("Готовая программа: dist\\VoiceTyping\\VoiceTyping.exe")
         print("=" * 60)
 
-        # Open Explorer in dist folder
         try:
             os.startfile(str(dist_app_dir))
         except Exception:
