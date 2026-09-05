@@ -12,12 +12,23 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+# Guarantee working directory is always the application folder
+if getattr(sys, "frozen", False):
+    app_dir = Path(sys.executable).resolve().parent
+else:
+    app_dir = Path(__file__).resolve().parent
+try:
+    os.chdir(app_dir)
+except Exception:
+    pass
+
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QAction
+from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from pynput import keyboard
 
 # Add src to sys.path
-src_dir = Path(__file__).resolve().parent / "src"
+src_dir = app_dir / "src"
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
 
@@ -192,6 +203,31 @@ def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
+    # Single Instance Check via local IPC socket
+    ipc_name = "VoiceTyping_SingleInstance_IPC"
+    client_socket = QLocalSocket()
+    client_socket.connectToServer(ipc_name)
+    if client_socket.waitForConnected(400):
+        client_socket.write(b"SHOW_SETTINGS")
+        client_socket.waitForBytesWritten(400)
+        client_socket.disconnectFromServer()
+        sys.exit(0)
+
+    ipc_server = QLocalServer()
+    QLocalServer.removeServer(ipc_name)
+    ipc_server.listen(ipc_name)
+
+    def _handle_ipc_connection():
+        conn = ipc_server.nextPendingConnection()
+        if conn:
+            if conn.waitForReadyRead(400):
+                msg = conn.readAll().data().decode("utf-8", errors="ignore")
+                if "SHOW_SETTINGS" in msg:
+                    open_settings_dialog()
+            conn.disconnectFromServer()
+
+    ipc_server.newConnection.connect(_handle_ipc_connection)
+
     init_custom_fonts()
     app.setFont(get_body_font(10))
 
@@ -258,6 +294,16 @@ def main():
     tray.setContextMenu(tray_menu)
     tray.activated.connect(lambda reason: open_settings_dialog() if reason == QSystemTrayIcon.ActivationReason.DoubleClick else None)
     tray.show()
+
+    # Visual startup confirmation: smooth HUD badge and tray notification
+    current_hk = app_settings.get("hotkey", "f8").upper()
+    hud.show_greeting(f"VoiceTyping готов • Клавиша {current_hk}")
+    tray.showMessage(
+        "VoiceTyping готов к работе",
+        f"Зажмите клавишу {current_hk} в любой программе для ввода текста.",
+        QSystemTrayIcon.MessageIcon.Information,
+        3500
+    )
 
     def _init_vosk():
         global stream_recognizer

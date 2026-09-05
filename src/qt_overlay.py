@@ -131,6 +131,22 @@ class ModernHUD(QWidget):
         self.update()
         self.hide_timer.start(800)
 
+    def show_greeting(self, text: str = "VoiceTyping готов • Нажмите F8"):
+        """Shows instant visual feedback on startup so the user immediately knows the app is alive."""
+        self.hide_timer.stop()
+        self.state = "done"
+        self.display_text = text
+        self.target_level = 0.0
+        self.show()
+        
+        self.pos_anim.stop()
+        self.pos_anim.setStartValue(self.pos())
+        self.pos_anim.setEndValue(QPoint(self.pos_x, self.target_y))
+        self.pos_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.pos_anim.start()
+        self.update()
+        self.hide_timer.start(2400)
+
     def hide_hud(self):
         self.state = "idle"
         self.pos_anim.stop()
