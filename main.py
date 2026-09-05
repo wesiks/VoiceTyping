@@ -217,19 +217,19 @@ def main():
             font-family: '{fams["body"]}', sans-serif;
             font-size: 12px;
         }}
-        QMenu::item {
+        QMenu::item {{
             padding: 7px 18px;
             border-radius: 5px;
-        }
-        QMenu::item:selected {
+        }}
+        QMenu::item:selected {{
             background-color: #262634;
             color: #FFFFFF;
-        }
-        QMenu::separator {
+        }}
+        QMenu::separator {{
             height: 1px;
             background: #282834;
             margin: 4px 8px;
-        }
+        }}
     """)
 
     act_settings = QAction("Параметры...", app)
