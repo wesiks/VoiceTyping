@@ -1,3 +1,18 @@
+import os
+import sys
+
+# PyInstaller compatibility fix for Vosk DLL directory resolution
+if getattr(sys, "frozen", False):
+    meipass = getattr(sys, "_MEIPASS", "")
+    if meipass:
+        vosk_internal = os.path.join(meipass, "vosk")
+        try:
+            os.makedirs(vosk_internal, exist_ok=True)
+            if hasattr(os, "add_dll_directory"):
+                os.add_dll_directory(vosk_internal)
+        except Exception:
+            pass
+
 import json
 import queue
 import threading
@@ -23,7 +38,6 @@ class StreamRecognizer:
         with self._lock:
             self.callback = on_partial_text_callback
             self._accumulated_words = []
-            # Create fresh recognizer for each recording segment to clear previous state
             self.recognizer = vosk.KaldiRecognizer(self.model, self.sample_rate)
             while not self.audio_queue.empty():
                 try:
@@ -44,7 +58,7 @@ class StreamRecognizer:
         """Stops streaming and returns accumulated text."""
         with self._lock:
             self._running = False
-            self.audio_queue.put(None)  # Sentinel to stop worker
+            self.audio_queue.put(None)
 
         if self._worker_thread and self._worker_thread.is_alive():
             self._worker_thread.join(timeout=0.3)

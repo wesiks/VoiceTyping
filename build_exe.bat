@@ -24,6 +24,7 @@ echo [*] Компиляция приложения через PyInstaller...
     --windowed ^
     --name "VoiceTyping" ^
     --collect-all "vosk" ^
+    --add-data ".venv\Lib\site-packages\vosk;vosk" ^
     --add-data "themes.py;." ^
     --add-data "live_punctuator.py;." ^
     --add-data "qt_overlay.py;." ^
@@ -44,10 +45,9 @@ if %ERRORLEVEL% EQU 0 (
     echo Готовая программа находится в папке:
     echo dist\VoiceTyping\VoiceTyping.exe
     echo.
-    echo ВАЖНО: Запускайте файл из папки DIST, а не из build!
+    echo ВАЖНО: Запускайте файл из папки DIST!
     echo =========================================================
     
-    REM Открываем правильную папку в Проводнике Windows
     explorer.exe "dist\VoiceTyping"
 ) else (
     echo.
