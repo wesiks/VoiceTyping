@@ -28,6 +28,7 @@ from qt_overlay import ModernHUD, AudioSignalBridge
 from live_punctuator import format_live_text
 from settings_window import SettingsWindow
 from tray_icon import create_app_icon
+from font_loader import init_custom_fonts, get_body_font, get_font_families
 
 # Global state
 app_settings = load_settings()
@@ -186,6 +187,9 @@ def main():
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
+    init_custom_fonts()
+    app.setFont(get_body_font(10))
+
     bridge = AudioSignalBridge()
     hud = ModernHUD(theme_id=app_settings.get("theme", "claude"))
 
@@ -201,17 +205,18 @@ def main():
     tray = QSystemTrayIcon(create_app_icon(theme["accent"]), app)
     tray.setToolTip(f"VoiceTyping [{app_settings.get('hotkey', 'f8').upper()}]")
 
+    fams = get_font_families()
     tray_menu = QMenu()
-    tray_menu.setStyleSheet("""
-        QMenu {
+    tray_menu.setStyleSheet(f"""
+        QMenu {{
             background-color: #16161C;
             color: #FAF8F5;
             border: 1px solid #282834;
             border-radius: 8px;
             padding: 5px;
-            font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif;
+            font-family: '{fams["body"]}', sans-serif;
             font-size: 12px;
-        }
+        }}
         QMenu::item {
             padding: 7px 18px;
             border-radius: 5px;

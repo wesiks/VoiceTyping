@@ -10,7 +10,10 @@ from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QFont, QLinearGradient, 
 
 from app_settings import load_settings, save_settings, set_windows_autostart
 from themes import THEMES, get_theme
-from font_loader import get_app_font, init_custom_fonts
+from font_loader import (
+    get_title_font, get_subtitle_font, get_body_font, get_mono_font,
+    get_font_families, init_custom_fonts
+)
 
 class ModernToggle(QWidget):
     """Custom smooth iOS/macOS-style toggle switch."""
@@ -80,7 +83,7 @@ class ThemeCard(QPushButton):
         self.setChecked(is_active)
         self.setFixedHeight(38)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFont(get_app_font(11, demi_bold=True))
+        self.setFont(get_subtitle_font(11, demi_bold=True))
         self._update_style()
 
     def set_active(self, active):
@@ -238,13 +241,16 @@ class SettingsWindow(QDialog):
         master_layout = QVBoxLayout(self)
         master_layout.setContentsMargins(16, 16, 16, 16)
         
-        font_family = init_custom_fonts()
+        fams = get_font_families()
+        title_fam = fams["title"]
+        body_fam = fams["body"]
+        mono_fam = fams["mono"]
         
         self.card = AtmosphericCanvas(self.theme)
         self.card.setStyleSheet(f"""
             QLabel {{
                 color: #FAF8F5;
-                font-family: '{font_family}', sans-serif;
+                font-family: '{body_fam}', sans-serif;
             }}
             QFrame.subcard {{
                 background-color: rgba(22, 22, 30, 0.75);
@@ -259,7 +265,7 @@ class SettingsWindow(QDialog):
                 color: #FAF8F5;
                 padding: 8px 12px;
                 font-size: 13px;
-                font-family: '{font_family}', sans-serif;
+                font-family: '{mono_fam}', monospace;
             }}
             QLineEdit:focus {{
                 border: 1.5px solid {self.theme['accent']};
@@ -270,8 +276,9 @@ class SettingsWindow(QDialog):
                 border-radius: 8px;
                 color: #FAF8F5;
                 padding: 7px 12px;
-                font-size: 13px;
-                font-family: '{font_family}', sans-serif;
+                font-size: 12px;
+                font-family: '{mono_fam}', monospace;
+                font-weight: 600;
             }}
             QComboBox::drop-down {{
                 border: none;
@@ -281,7 +288,8 @@ class SettingsWindow(QDialog):
                 color: #FAF8F5;
                 selection-background-color: #2D2D3A;
                 border: 1px solid #303040;
-                font-family: '{font_family}', sans-serif;
+                font-family: '{mono_fam}', monospace;
+                font-size: 12px;
             }}
             QPushButton.primary {{
                 background-color: {self.theme['accent']};
@@ -291,7 +299,7 @@ class SettingsWindow(QDialog):
                 padding: 10px 22px;
                 font-size: 13px;
                 font-weight: 600;
-                font-family: '{font_family}', sans-serif;
+                font-family: '{body_fam}', sans-serif;
             }}
             QPushButton.primary:hover {{
                 opacity: 0.9;
@@ -303,7 +311,7 @@ class SettingsWindow(QDialog):
                 border-radius: 8px;
                 padding: 8px 16px;
                 font-size: 12px;
-                font-family: '{font_family}', sans-serif;
+                font-family: '{body_fam}', sans-serif;
             }}
             QPushButton.secondary:hover {{
                 background-color: rgba(42, 42, 56, 0.95);
@@ -325,7 +333,7 @@ class SettingsWindow(QDialog):
         title_bar.setContentsMargins(0, 0, 0, 4)
         
         lbl_title = QLabel("Параметры VoiceTyping")
-        lbl_title.setFont(get_app_font(13, bold=True))
+        lbl_title.setFont(get_title_font(13, bold=True))
         title_bar.addWidget(lbl_title)
         
         title_bar.addStretch()
@@ -357,7 +365,7 @@ class SettingsWindow(QDialog):
         api_lay.setSpacing(8)
 
         lbl_api = QLabel("Ключ Groq API")
-        lbl_api.setFont(get_app_font(10, demi_bold=True))
+        lbl_api.setFont(get_subtitle_font(11, demi_bold=True))
         api_lay.addWidget(lbl_api)
 
         h_api = QHBoxLayout()
@@ -365,17 +373,19 @@ class SettingsWindow(QDialog):
         self.api_input.setPlaceholderText("gsk_...")
         self.api_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_input.setText(self.settings.get("groq_api_key", ""))
+        self.api_input.setFont(get_mono_font(11))
         h_api.addWidget(self.api_input)
 
         btn_test = QPushButton("Проверить")
         btn_test.setProperty("class", "secondary")
+        btn_test.setFont(get_body_font(10, demi_bold=True))
         btn_test.clicked.connect(self._check_api_key)
         h_api.addWidget(btn_test)
         api_lay.addLayout(h_api)
 
         lbl_link = QLabel('<a style="color: #E06A38; text-decoration: none;" href="https://console.groq.com/keys">Получить бесплатный ключ на console.groq.com</a>')
         lbl_link.setOpenExternalLinks(True)
-        lbl_link.setFont(get_app_font(9))
+        lbl_link.setFont(get_body_font(9))
         api_lay.addWidget(lbl_link)
 
         card_layout.addWidget(api_card)
@@ -387,7 +397,7 @@ class SettingsWindow(QDialog):
         theme_lay.setSpacing(10)
 
         lbl_theme = QLabel("Цветовая тема")
-        lbl_theme.setFont(get_app_font(10, demi_bold=True))
+        lbl_theme.setFont(get_subtitle_font(11, demi_bold=True))
         theme_lay.addWidget(lbl_theme)
 
         grid_themes = QGridLayout()
@@ -420,11 +430,12 @@ class SettingsWindow(QDialog):
         # Hotkey row
         h_hotkey = QHBoxLayout()
         lbl_hotkey = QLabel("Клавиша Push-to-Talk:")
-        lbl_hotkey.setFont(get_app_font(11))
+        lbl_hotkey.setFont(get_body_font(11))
         h_hotkey.addWidget(lbl_hotkey)
         
         self.combo_hotkey = QComboBox()
         self.combo_hotkey.addItems(["F8", "F4", "F7", "Caps_Lock", "Scroll_Lock", "Pause", "Insert"])
+        self.combo_hotkey.setFont(get_mono_font(11, bold=True))
         cur_hotkey = self.settings.get("hotkey", "f8").upper()
         idx = self.combo_hotkey.findText(cur_hotkey)
         if idx >= 0:
@@ -435,7 +446,7 @@ class SettingsWindow(QDialog):
         # Sound toggle row
         h_sound = QHBoxLayout()
         lbl_sound = QLabel("Мягкий звуковой сигнал при старте/остановке")
-        lbl_sound.setFont(get_app_font(11))
+        lbl_sound.setFont(get_body_font(11))
         h_sound.addWidget(lbl_sound)
         h_sound.addStretch()
         self.toggle_sound = ModernToggle(
@@ -448,7 +459,7 @@ class SettingsWindow(QDialog):
         # Autostart toggle row
         h_auto = QHBoxLayout()
         lbl_auto = QLabel("Запускать при включении Windows")
-        lbl_auto.setFont(get_app_font(11))
+        lbl_auto.setFont(get_body_font(11))
         h_auto.addWidget(lbl_auto)
         h_auto.addStretch()
         self.toggle_autostart = ModernToggle(
@@ -463,7 +474,7 @@ class SettingsWindow(QDialog):
         # 5. Inline Toast Label
         self.toast_label = QLabel("")
         self.toast_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.toast_label.setFont(get_app_font(10, demi_bold=True))
+        self.toast_label.setFont(get_subtitle_font(10, demi_bold=True))
         self.toast_label.setFixedHeight(22)
         card_layout.addWidget(self.toast_label)
 
@@ -473,6 +484,7 @@ class SettingsWindow(QDialog):
 
         self.btn_save = QPushButton("Сохранить настройки")
         self.btn_save.setProperty("class", "primary")
+        self.btn_save.setFont(get_body_font(11, demi_bold=True))
         self.btn_save.setStyleSheet(f"background-color: {self.theme['accent']};")
         self.btn_save.clicked.connect(self._save)
         h_bottom.addWidget(self.btn_save)
