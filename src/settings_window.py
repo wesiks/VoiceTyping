@@ -2,9 +2,11 @@ import math
 import random
 import threading
 import requests
+import webbrowser
 from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit,
-    QPushButton, QComboBox, QFrame, QButtonGroup, QGraphicsDropShadowEffect
+    QPushButton, QComboBox, QFrame, QButtonGroup, QGraphicsDropShadowEffect,
+    QProgressBar
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, pyqtProperty, QPoint, QRectF, QTimer
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QFont, QLinearGradient, QRadialGradient
@@ -225,7 +227,7 @@ class SettingsWindow(QDialog):
         
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setFixedSize(560, 780)
+        self.setFixedSize(560, 800)
         
         self._drag_pos = None
         self.settings = load_settings()
@@ -373,17 +375,37 @@ class SettingsWindow(QDialog):
         self.api_input.setFont(get_mono_font(11))
         h_api.addWidget(self.api_input)
 
-        btn_test = QPushButton("Проверить")
-        btn_test.setProperty("class", "secondary")
-        btn_test.setFont(get_body_font(10, demi_bold=True))
-        btn_test.clicked.connect(self._check_api_key)
-        h_api.addWidget(btn_test)
+        self.btn_test = QPushButton("Проверить")
+        self.btn_test.setProperty("class", "secondary")
+        self.btn_test.setFont(get_body_font(10, demi_bold=True))
+        self.btn_test.setFixedHeight(32)
+        self.btn_test.setFixedWidth(105)
+        self.btn_test.clicked.connect(self._check_api_key)
+        h_api.addWidget(self.btn_test)
         api_lay.addLayout(h_api)
 
-        lbl_link = QLabel('<a style="color: #E06A38; text-decoration: none;" href="https://console.groq.com/keys">Получить бесплатный ключ на console.groq.com</a>')
-        lbl_link.setOpenExternalLinks(True)
-        lbl_link.setFont(get_body_font(9))
-        api_lay.addWidget(lbl_link)
+        self.api_progress = QProgressBar()
+        self.api_progress.setFixedHeight(4)
+        self.api_progress.setTextVisible(False)
+        self.api_progress.setRange(0, 100)
+        self.api_progress.setValue(0)
+        self.api_progress.setVisible(False)
+        self._update_progress_style(self.theme["accent"])
+        api_lay.addWidget(self.api_progress)
+
+        h_link = QHBoxLayout()
+        self.lbl_link = QLabel(f'<a style="color: {self.theme["accent"]}; text-decoration: underline;" href="https://console.groq.com/keys">Получить бесплатный ключ на console.groq.com/keys</a>')
+        self.lbl_link.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.lbl_link.setFont(get_body_font(9, demi_bold=True))
+        self.lbl_link.linkActivated.connect(lambda url: webbrowser.open("https://console.groq.com/keys"))
+        h_link.addWidget(self.lbl_link)
+        h_link.addStretch()
+        api_lay.addLayout(h_link)
+
+        lbl_vpn_note = QLabel("Примечание: для регистрации и создания ключа на сайте Groq требуется VPN")
+        lbl_vpn_note.setFont(get_body_font(8))
+        lbl_vpn_note.setStyleSheet("color: #8C8C9A; margin-top: -3px;")
+        api_lay.addWidget(lbl_vpn_note)
 
         card_layout.addWidget(api_card)
 
@@ -547,6 +569,20 @@ class SettingsWindow(QDialog):
         self.toast_label.setText(message)
         QTimer.singleShot(4000, lambda: self.toast_label.setText(""))
 
+    def _update_progress_style(self, color_hex):
+        self.api_progress.setStyleSheet(f"""
+            QProgressBar {{
+                background-color: rgba(255, 255, 255, 0.08);
+                border: none;
+                border-radius: 2px;
+                max-height: 4px;
+            }}
+            QProgressBar::chunk {{
+                background-color: {color_hex};
+                border-radius: 2px;
+            }}
+        """)
+
     def _on_theme_selected(self, theme_id):
         self.settings["theme"] = theme_id
         self.theme = get_theme(theme_id)
@@ -559,6 +595,8 @@ class SettingsWindow(QDialog):
         self.toggle_autostart.set_accent(self.theme["accent"])
         self.toggle_stream.set_accent(self.theme["accent"])
         self.toggle_updates.set_accent(self.theme["accent"])
+        self._update_progress_style(self.theme["accent"])
+        self.lbl_link.setText(f'<a style="color: {self.theme["accent"]}; text-decoration: underline;" href="https://console.groq.com/keys">Получить бесплатный ключ на console.groq.com/keys</a>')
         self.btn_save.setStyleSheet(f"background-color: {self.theme['accent']};")
         
         self.theme_changed.emit(theme_id)
@@ -569,18 +607,80 @@ class SettingsWindow(QDialog):
             self._show_toast("Введите ключ для проверки", is_error=True)
             return
 
-        try:
-            r = requests.get(
-                "https://api.groq.com/openai/v1/models",
-                headers={"Authorization": f"Bearer {key}"},
-                timeout=5
-            )
-            if r.status_code == 200:
-                self._show_toast("Ключ успешно подтвержден")
-            else:
-                self._show_toast(f"Неверный ключ (код {r.status_code})", is_error=True)
-        except Exception as e:
-            self._show_toast(f"Ошибка соединения: {e}", is_error=True)
+        self.btn_test.setEnabled(False)
+        self.btn_test.setText("Проверка...")
+        self.api_progress.setVisible(True)
+        self.api_progress.setValue(12)
+        self._update_progress_style(self.theme["accent"])
+        self.toast_label.setText("")
+
+        self._progress_target = 85
+        self._progress_current = 12
+
+        def _step_anim():
+            if hasattr(self, "_progress_current") and self._progress_current < self._progress_target:
+                self._progress_current += max(1, int((self._progress_target - self._progress_current) * 0.22))
+                self.api_progress.setValue(self._progress_current)
+
+        if hasattr(self, "_anim_timer") and self._anim_timer.isActive():
+            self._anim_timer.stop()
+        self._anim_timer = QTimer(self)
+        self._anim_timer.setInterval(40)
+        self._anim_timer.timeout.connect(_step_anim)
+        self._anim_timer.start()
+
+        def _worker():
+            status = 0
+            err_msg = ""
+            try:
+                r = requests.get(
+                    "https://api.groq.com/openai/v1/models",
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "User-Agent": "VoiceTyping/1.2.0"
+                    },
+                    timeout=3.5
+                )
+                status = r.status_code
+            except requests.exceptions.Timeout:
+                err_msg = "Превышено время ожидания (проверьте интернет)"
+            except requests.exceptions.ConnectionError:
+                err_msg = "Ошибка подключения к Groq API"
+            except Exception as e:
+                err_msg = str(e)
+
+            QTimer.singleShot(0, lambda: self._on_check_api_done(status, err_msg))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_check_api_done(self, status: int, err_msg: str):
+        if hasattr(self, "_anim_timer") and self._anim_timer.isActive():
+            self._anim_timer.stop()
+
+        self.btn_test.setEnabled(True)
+        self.btn_test.setText("Проверить")
+        self.api_progress.setValue(100)
+
+        if status == 200:
+            self._update_progress_style("#34D399")
+            self._show_toast("Ключ успешно подтвержден")
+            QTimer.singleShot(2200, lambda: self.api_progress.setVisible(False))
+        elif status == 401:
+            self._update_progress_style("#F87171")
+            self._show_toast("Неверный ключ (код 401)", is_error=True)
+            QTimer.singleShot(3000, lambda: self.api_progress.setVisible(False))
+        elif status == 403:
+            self._update_progress_style("#FB923C")
+            self._show_toast("Доступ к Groq ограничен (код 403). Включите VPN.", is_error=True)
+            QTimer.singleShot(4500, lambda: self.api_progress.setVisible(False))
+        elif err_msg:
+            self._update_progress_style("#F87171")
+            self._show_toast(err_msg, is_error=True)
+            QTimer.singleShot(3000, lambda: self.api_progress.setVisible(False))
+        else:
+            self._update_progress_style("#F87171")
+            self._show_toast(f"Ответ сервера: код {status}", is_error=True)
+            QTimer.singleShot(3000, lambda: self.api_progress.setVisible(False))
 
     def _on_check_update_clicked(self):
         self.btn_check_update.setEnabled(False)
