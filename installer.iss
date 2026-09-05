@@ -1,0 +1,45 @@
+; Inno Setup Script для VoiceTyping
+; Скачать бесплатный компилятор Inno Setup: https://jrsoftware.org/isdl.php
+
+#define MyAppName "VoiceTyping"
+#define MyAppVersion "1.0.0"
+#define MyAppPublisher "VoiceTyping Open Source"
+#define MyAppURL "https://github.com"
+#define MyAppExeName "VoiceTyping.exe"
+
+[Setup]
+AppId={{D3F9A1B2-56C7-498A-B871-38A2B9C89999}
+AppName={#MyAppName}
+AppVersion={#MyAppVersion}
+AppPublisher={#MyAppPublisher}
+AppPublisherURL={#MyAppURL}
+AppSupportURL={#MyAppURL}
+AppUpdatesURL={#MyAppURL}
+DefaultDirName={autopf}\{#MyAppName}
+DisableProgramGroupPage=yes
+OutputDir=dist\installer
+OutputBaseFilename=VoiceTyping_Setup
+Compression=lzma2/ultra64
+SolidCompression=yes
+WizardStyle=modern
+PrivilegesRequired=lowest
+
+[Languages]
+Name: "russian"; MessagesFile: "compiler:Languages\Russian.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+Name: "autostart"; Description: "Запускать приложение вместе с Windows"; GroupDescription: "Автозагрузка:"
+
+[Files]
+Source: "dist\VoiceTyping\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\VoiceTyping\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[Icons]
+Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: autostart
+
+[Run]
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
