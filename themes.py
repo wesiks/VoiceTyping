@@ -1,15 +1,15 @@
 THEMES = {
     "claude": {
         "id": "claude",
-        "name": "Claude Warm",
+        "name": "Claude",
         "accent": "#E06A38",
         "border": (224, 106, 56, 190),
         "glow": (224, 106, 56, 45),
         "card_bg": (20, 20, 24, 248),
         "bar_colors": [
-            (224, 106, 56),  # Terracotta
-            (234, 88, 12),   # Amber-Orange
-            (245, 158, 11),  # Golden Amber
+            (224, 106, 56),
+            (234, 88, 12),
+            (245, 158, 11),
             (234, 88, 12),
             (224, 106, 56)
         ],
@@ -17,7 +17,7 @@ THEMES = {
     },
     "cyan": {
         "id": "cyan",
-        "name": "Cyber Cyan",
+        "name": "Cyan",
         "accent": "#06B6D4",
         "border": (6, 182, 212, 190),
         "glow": (6, 182, 212, 45),
@@ -33,7 +33,7 @@ THEMES = {
     },
     "emerald": {
         "id": "emerald",
-        "name": "Emerald Mint",
+        "name": "Emerald",
         "accent": "#10B981",
         "border": (16, 185, 129, 190),
         "glow": (16, 185, 129, 45),
@@ -49,7 +49,7 @@ THEMES = {
     },
     "purple": {
         "id": "purple",
-        "name": "Neon Violet",
+        "name": "Violet",
         "accent": "#8B5CF6",
         "border": (139, 92, 246, 190),
         "glow": (139, 92, 246, 45),
@@ -65,7 +65,7 @@ THEMES = {
     },
     "crimson": {
         "id": "crimson",
-        "name": "Ruby Crimson",
+        "name": "Crimson",
         "accent": "#EF4444",
         "border": (239, 68, 68, 190),
         "glow": (239, 68, 68, 45),
@@ -78,6 +78,22 @@ THEMES = {
             (239, 68, 68)
         ],
         "text": (255, 241, 242)
+    },
+    "amber": {
+        "id": "amber",
+        "name": "Amber",
+        "accent": "#F59E0B",
+        "border": (245, 158, 11, 190),
+        "glow": (245, 158, 11, 45),
+        "card_bg": (24, 20, 12, 248),
+        "bar_colors": [
+            (245, 158, 11),
+            (251, 191, 36),
+            (252, 211, 77),
+            (251, 191, 36),
+            (245, 158, 11)
+        ],
+        "text": (254, 252, 232)
     }
 }
 

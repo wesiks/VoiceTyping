@@ -5,6 +5,7 @@ from PyQt6.QtCore import Qt, QObject, pyqtSignal, QTimer, QPropertyAnimation, QE
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QFont, QFontMetrics, QLinearGradient, QPainterPath
 
 from themes import get_theme
+from font_loader import get_app_font
 
 class AudioSignalBridge(QObject):
     """Thread-safe signal bridge between audio threads and Qt UI."""
@@ -247,8 +248,7 @@ class ModernHUD(QWidget):
         text_w = self.card_w - 54 - 20
         text_rect = QRectF(text_x, card_rect.top(), text_w, self.card_h)
         
-        font = QFont("Segoe UI Variable Text", 11)
-        font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+        font = get_app_font(11, demi_bold=False)
         painter.setFont(font)
         
         if self.state == "recording" and self.display_text == "Слушаю...":

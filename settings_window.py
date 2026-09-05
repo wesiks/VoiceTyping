@@ -2,7 +2,7 @@ import math
 import random
 import requests
 from PyQt6.QtWidgets import (
-    QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QDialog, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit,
     QPushButton, QComboBox, QFrame, QButtonGroup, QGraphicsDropShadowEffect
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, pyqtProperty, QPoint, QRectF, QTimer
@@ -10,6 +10,7 @@ from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QFont, QLinearGradient, 
 
 from app_settings import load_settings, save_settings, set_windows_autostart
 from themes import THEMES, get_theme
+from font_loader import get_app_font, init_custom_fonts
 
 class ModernToggle(QWidget):
     """Custom smooth iOS/macOS-style toggle switch."""
@@ -70,15 +71,16 @@ class ModernToggle(QWidget):
 
 
 class ThemeCard(QPushButton):
-    """Custom theme selector pill with circular swatch."""
+    """Spacious theme selector pill with circular swatch."""
     def __init__(self, theme_id, theme_info, is_active=False, parent=None):
         super().__init__(parent)
         self.theme_id = theme_id
         self.info = theme_info
         self.setCheckable(True)
         self.setChecked(is_active)
-        self.setFixedHeight(36)
+        self.setFixedHeight(38)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFont(get_app_font(11, demi_bold=True))
         self._update_style()
 
     def set_active(self, active):
@@ -87,22 +89,20 @@ class ThemeCard(QPushButton):
 
     def _update_style(self):
         accent = self.info["accent"]
-        bg = "rgba(35, 35, 46, 0.85)" if self.isChecked() else "rgba(24, 24, 32, 0.65)"
-        border = f"1.5px solid {accent}" if self.isChecked() else "1px solid rgba(255, 255, 255, 0.10)"
+        bg = "rgba(38, 38, 52, 0.90)" if self.isChecked() else "rgba(24, 24, 32, 0.65)"
+        border = f"1.5px solid {accent}" if self.isChecked() else "1px solid rgba(255, 255, 255, 0.12)"
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: {bg};
                 color: #FAF8F5;
                 border: {border};
-                border-radius: 8px;
-                padding-left: 10px;
-                padding-right: 12px;
-                font-size: 12px;
-                font-weight: 500;
+                border-radius: 9px;
+                padding-left: 32px;
+                padding-right: 14px;
                 text-align: left;
             }}
             QPushButton:hover {{
-                background-color: rgba(45, 45, 60, 0.85);
+                background-color: rgba(48, 48, 64, 0.90);
                 border-color: {accent};
             }}
         """)
@@ -113,24 +113,23 @@ class ThemeCard(QPushButton):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(QColor(self.info["accent"])))
-        painter.drawEllipse(12, 13, 10, 10)
+        painter.drawEllipse(13, 14, 10, 10)
 
 
 class AtmosphericCanvas(QFrame):
-    """Background container with floating animated snow / stardust particles and breathing ambient glow."""
+    """Background container with floating animated snow particles and ambient breathing glow."""
     def __init__(self, theme, parent=None):
         super().__init__(parent)
         self.theme = theme
         self.time_counter = 0.0
         
-        # Initialize 50 floating snow/stardust particles with 3D depth layers
+        # 50 floating snow particles with depth layers
         self.particles = []
         for _ in range(50):
-            # Depth ratio: 0.0 (far, tiny, slow) to 1.0 (near, larger, faster)
             depth = random.uniform(0.1, 1.0)
             self.particles.append({
-                "x": random.uniform(0, 520),
-                "y": random.uniform(0, 620),
+                "x": random.uniform(0, 540),
+                "y": random.uniform(0, 680),
                 "radius": 0.9 + (depth * 1.8),
                 "speed_y": 0.4 + (depth * 0.9),
                 "sway_speed": random.uniform(0.015, 0.035),
@@ -139,7 +138,6 @@ class AtmosphericCanvas(QFrame):
                 "depth": depth
             })
 
-        # 60 FPS animation timer
         self.anim_timer = QTimer(self)
         self.anim_timer.setInterval(16)
         self.anim_timer.timeout.connect(self._update_particles)
@@ -176,17 +174,16 @@ class AtmosphericCanvas(QFrame):
         rect = QRectF(0, 0, self.width(), self.height())
         radius = 16.0
         
-        # 1. Base Dark Obsidian Body
+        # 1. Base Obsidian Glass
         painter.setPen(QPen(QColor(255, 255, 255, 22), 1.2))
         painter.setBrush(QBrush(QColor(14, 14, 18, 252)))
         painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), radius, radius)
         
-        # 2. Atmospheric Breathing Radial Glow (Theme Accent)
+        # 2. Breathing Ambient Theme Glow
         accent_rgb = QColor(self.theme["accent"])
         center_x = self.width() * 0.5
         center_y = self.height() * 0.4
         
-        # Breathing pulsation
         breath = 0.06 + 0.03 * math.sin(self.time_counter * 0.9)
         glow_alpha = int(breath * 255)
         
@@ -199,22 +196,19 @@ class AtmosphericCanvas(QFrame):
         painter.setBrush(QBrush(rad_grad))
         painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), radius, radius)
         
-        # 3. Floating Snow / Stardust Particles (60 FPS)
+        # 3. 60 FPS Snow Particles
         for p in self.particles:
             alpha = p["alpha"]
             r = p["radius"]
-            
-            # Subtle outer glow for larger foreground snowflakes
             if p["depth"] > 0.65:
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(QBrush(QColor(255, 255, 255, int(alpha * 0.25))))
                 painter.drawEllipse(QPoint(int(p["x"]), int(p["y"])), int(r * 2.0), int(r * 2.0))
 
-            # Core particle
             painter.setBrush(QBrush(QColor(255, 255, 255, alpha)))
             painter.drawEllipse(QPoint(int(p["x"]), int(p["y"])), int(r), int(r))
 
-        # 4. Top Specular Glass Bevel
+        # 4. Top Specular Bevel
         top_grad = QLinearGradient(0, 1, 0, 16)
         top_grad.setColorAt(0.0, QColor(255, 255, 255, 45))
         top_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
@@ -228,10 +222,11 @@ class SettingsWindow(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        init_custom_fonts()
         
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setFixedSize(540, 650)
+        self.setFixedSize(560, 680)
         
         self._drag_pos = None
         self.settings = load_settings()
@@ -243,73 +238,78 @@ class SettingsWindow(QDialog):
         master_layout = QVBoxLayout(self)
         master_layout.setContentsMargins(16, 16, 16, 16)
         
-        # Atmospheric Canvas with Snow and Depth
+        font_family = init_custom_fonts()
+        
         self.card = AtmosphericCanvas(self.theme)
-        self.card.setStyleSheet("""
-            QLabel {
+        self.card.setStyleSheet(f"""
+            QLabel {{
                 color: #FAF8F5;
-                font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif;
-            }
-            QFrame.subcard {
-                background-color: rgba(22, 22, 30, 0.72);
-                border: 1px solid rgba(255, 255, 255, 0.08);
+                font-family: '{font_family}', sans-serif;
+            }}
+            QFrame.subcard {{
+                background-color: rgba(22, 22, 30, 0.75);
+                border: 1px solid rgba(255, 255, 255, 0.09);
                 border-radius: 12px;
-                padding: 12px;
-            }
-            QLineEdit {
-                background-color: rgba(28, 28, 38, 0.85);
+                padding: 14px;
+            }}
+            QLineEdit {{
+                background-color: rgba(28, 28, 38, 0.88);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 8px;
+                color: #FAF8F5;
+                padding: 8px 12px;
+                font-size: 13px;
+                font-family: '{font_family}', sans-serif;
+            }}
+            QLineEdit:focus {{
+                border: 1.5px solid {self.theme['accent']};
+            }}
+            QComboBox {{
+                background-color: rgba(28, 28, 38, 0.88);
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 8px;
                 color: #FAF8F5;
                 padding: 7px 12px;
                 font-size: 13px;
-            }
-            QLineEdit:focus {
-                border: 1px solid #E06A38;
-            }
-            QComboBox {
-                background-color: rgba(28, 28, 38, 0.85);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 8px;
-                color: #FAF8F5;
-                padding: 6px 12px;
-                font-size: 13px;
-            }
-            QComboBox::drop-down {
+                font-family: '{font_family}', sans-serif;
+            }}
+            QComboBox::drop-down {{
                 border: none;
-            }
-            QComboBox QAbstractItemView {
+            }}
+            QComboBox QAbstractItemView {{
                 background-color: #1A1A22;
                 color: #FAF8F5;
                 selection-background-color: #2D2D3A;
                 border: 1px solid #303040;
-            }
-            QPushButton.primary {
-                background-color: #E06A38;
+                font-family: '{font_family}', sans-serif;
+            }}
+            QPushButton.primary {{
+                background-color: {self.theme['accent']};
                 color: #FFFFFF;
                 border: none;
-                border-radius: 8px;
-                padding: 9px 20px;
+                border-radius: 9px;
+                padding: 10px 22px;
                 font-size: 13px;
                 font-weight: 600;
-            }
-            QPushButton.primary:hover {
-                background-color: #F07A48;
-            }
-            QPushButton.secondary {
-                background-color: rgba(28, 28, 38, 0.85);
+                font-family: '{font_family}', sans-serif;
+            }}
+            QPushButton.primary:hover {{
+                opacity: 0.9;
+            }}
+            QPushButton.secondary {{
+                background-color: rgba(28, 28, 38, 0.88);
                 color: #D4D4DC;
                 border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 8px;
-                padding: 7px 14px;
+                padding: 8px 16px;
                 font-size: 12px;
-            }
-            QPushButton.secondary:hover {
-                background-color: rgba(38, 38, 52, 0.95);
-            }
+                font-family: '{font_family}', sans-serif;
+            }}
+            QPushButton.secondary:hover {{
+                background-color: rgba(42, 42, 56, 0.95);
+            }}
         """)
 
-        # Soft ambient elevation shadow
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(28)
         shadow.setColor(QColor(0, 0, 0, 130))
@@ -317,15 +317,15 @@ class SettingsWindow(QDialog):
         self.card.setGraphicsEffect(shadow)
 
         card_layout = QVBoxLayout(self.card)
-        card_layout.setContentsMargins(22, 16, 22, 22)
+        card_layout.setContentsMargins(24, 18, 24, 24)
         card_layout.setSpacing(14)
 
-        # 1. Title Bar
+        # 1. Custom Title Bar
         title_bar = QHBoxLayout()
         title_bar.setContentsMargins(0, 0, 0, 4)
         
         lbl_title = QLabel("Параметры VoiceTyping")
-        lbl_title.setFont(QFont("Segoe UI Variable Text", 12, QFont.Weight.Bold))
+        lbl_title.setFont(get_app_font(13, bold=True))
         title_bar.addWidget(lbl_title)
         
         title_bar.addStretch()
@@ -357,7 +357,7 @@ class SettingsWindow(QDialog):
         api_lay.setSpacing(8)
 
         lbl_api = QLabel("Ключ Groq API")
-        lbl_api.setFont(QFont("Segoe UI Variable Text", 10, QFont.Weight.DemiBold))
+        lbl_api.setFont(get_app_font(10, demi_bold=True))
         api_lay.addWidget(lbl_api)
 
         h_api = QHBoxLayout()
@@ -375,34 +375,40 @@ class SettingsWindow(QDialog):
 
         lbl_link = QLabel('<a style="color: #E06A38; text-decoration: none;" href="https://console.groq.com/keys">Получить бесплатный ключ на console.groq.com</a>')
         lbl_link.setOpenExternalLinks(True)
-        lbl_link.setFont(QFont("Segoe UI Variable Text", 9))
+        lbl_link.setFont(get_app_font(9))
         api_lay.addWidget(lbl_link)
 
         card_layout.addWidget(api_card)
 
-        # 3. Theme Section
+        # 3. Theme Section (Spacious 2-Row Grid Layout - Never Clips!)
         theme_card = QFrame()
         theme_card.setProperty("class", "subcard")
         theme_lay = QVBoxLayout(theme_card)
         theme_lay.setSpacing(10)
 
         lbl_theme = QLabel("Цветовая тема")
-        lbl_theme.setFont(QFont("Segoe UI Variable Text", 10, QFont.Weight.DemiBold))
+        lbl_theme.setFont(get_app_font(10, demi_bold=True))
         theme_lay.addWidget(lbl_theme)
 
-        h_themes = QHBoxLayout()
-        h_themes.setSpacing(8)
+        grid_themes = QGridLayout()
+        grid_themes.setSpacing(10)
 
         current_theme_id = self.settings.get("theme", "claude")
         self.theme_buttons = []
-        for tid, tinfo in THEMES.items():
+        
+        # Arranged in 2 balanced rows of 3 columns (perfect 3x2 grid)
+        theme_items = list(THEMES.items())
+        positions = [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
+
+        for idx, (tid, tinfo) in enumerate(theme_items):
+            r, c = positions[idx]
             btn = ThemeCard(tid, tinfo, is_active=(tid == current_theme_id))
-            btn.setText(f"      {tinfo['name']}")
+            btn.setText(tinfo["name"])
             btn.clicked.connect(lambda checked, t=tid: self._on_theme_selected(t))
             self.theme_buttons.append(btn)
-            h_themes.addWidget(btn)
+            grid_themes.addWidget(btn, r, c)
 
-        theme_lay.addLayout(h_themes)
+        theme_lay.addLayout(grid_themes)
         card_layout.addWidget(theme_card)
 
         # 4. Controls Section
@@ -413,7 +419,10 @@ class SettingsWindow(QDialog):
 
         # Hotkey row
         h_hotkey = QHBoxLayout()
-        h_hotkey.addWidget(QLabel("Клавиша Push-to-Talk:"))
+        lbl_hotkey = QLabel("Клавиша Push-to-Talk:")
+        lbl_hotkey.setFont(get_app_font(11))
+        h_hotkey.addWidget(lbl_hotkey)
+        
         self.combo_hotkey = QComboBox()
         self.combo_hotkey.addItems(["F8", "F4", "F7", "Caps_Lock", "Scroll_Lock", "Pause", "Insert"])
         cur_hotkey = self.settings.get("hotkey", "f8").upper()
@@ -425,7 +434,9 @@ class SettingsWindow(QDialog):
 
         # Sound toggle row
         h_sound = QHBoxLayout()
-        h_sound.addWidget(QLabel("Мягкий звуковой сигнал при старте/остановке"))
+        lbl_sound = QLabel("Мягкий звуковой сигнал при старте/остановке")
+        lbl_sound.setFont(get_app_font(11))
+        h_sound.addWidget(lbl_sound)
         h_sound.addStretch()
         self.toggle_sound = ModernToggle(
             checked=self.settings.get("sound_enabled", True),
@@ -436,7 +447,9 @@ class SettingsWindow(QDialog):
 
         # Autostart toggle row
         h_auto = QHBoxLayout()
-        h_auto.addWidget(QLabel("Запускать при включении Windows"))
+        lbl_auto = QLabel("Запускать при включении Windows")
+        lbl_auto.setFont(get_app_font(11))
+        h_auto.addWidget(lbl_auto)
         h_auto.addStretch()
         self.toggle_autostart = ModernToggle(
             checked=self.settings.get("autostart", False),
@@ -450,7 +463,7 @@ class SettingsWindow(QDialog):
         # 5. Inline Toast Label
         self.toast_label = QLabel("")
         self.toast_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.toast_label.setFont(QFont("Segoe UI Variable Text", 9, QFont.Weight.Medium))
+        self.toast_label.setFont(get_app_font(10, demi_bold=True))
         self.toast_label.setFixedHeight(22)
         card_layout.addWidget(self.toast_label)
 

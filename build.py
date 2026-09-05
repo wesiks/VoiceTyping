@@ -13,6 +13,14 @@ def main():
 
     # 1. Kill running instances to prevent file lock
     subprocess.run(["taskkill", "/F", "/IM", "VoiceTyping.exe"], capture_output=True)
+    try:
+        subprocess.run([
+            "powershell", "-NoProfile", "-Command",
+            "$app = New-Object -ComObject Shell.Application; "
+            "$app.Windows() | Where-Object { $_.LocationURL -like '*VoiceTyping*' } | ForEach-Object { $_.Quit() }"
+        ], capture_output=True)
+    except Exception:
+        pass
 
     # 2. Clean old builds
     build_dir = base_dir / "build"
@@ -51,6 +59,8 @@ def main():
         "--add-data", "sound_signals.py;.",
         "--add-data", "tray_icon.py;.",
         "--add-data", "app_settings.py;.",
+        "--add-data", "font_loader.py;.",
+        "--add-data", "fonts;fonts",
         "main.py"
     ]
 
