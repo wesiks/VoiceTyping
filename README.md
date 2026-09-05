@@ -75,7 +75,7 @@ dist\VoiceTyping\VoiceTyping.exe
 ### Запуск из исходного кода
 1. Клонируйте репозиторий:
    ```bash
-   git clone https://github.com/<ваш-аккаунт>/VoiceTyping.git
+   git clone https://github.com/wesiks/VoiceTyping.git
    cd VoiceTyping
    ```
 2. Создайте виртуальное окружение и установите зависимости:
