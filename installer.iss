@@ -2,7 +2,7 @@
 ; Скачать бесплатный компилятор Inno Setup: https://jrsoftware.org/isdl.php
 
 #define MyAppName "VoiceTyping"
-#define MyAppVersion "1.1.0"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "VoiceTyping"
 #define MyAppURL "https://github.com/wesiks/VoiceTyping"
 #define MyAppExeName "VoiceTyping.exe"

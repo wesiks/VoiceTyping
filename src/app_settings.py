@@ -28,13 +28,14 @@ DEFAULT_SETTINGS = {
     "sound_volume": 0.5,
     "eq_sensitivity": 1.2,
     "language": "ru",
-    "autostart": False
+    "autostart": False,
+    "stream_preview": True,
+    "check_updates": True
 }
 
 def load_settings() -> dict:
     settings = DEFAULT_SETTINGS.copy()
 
-    # Migrate from local settings.json if AppData copy doesn't exist yet
     if not SETTINGS_FILE.exists() and LOCAL_SETTINGS_FILE.exists():
         try:
             with open(LOCAL_SETTINGS_FILE, "r", encoding="utf-8") as f:
@@ -45,7 +46,6 @@ def load_settings() -> dict:
         except Exception:
             pass
 
-    # Read from AppData settings.json
     if SETTINGS_FILE.exists():
         try:
             with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
@@ -54,7 +54,6 @@ def load_settings() -> dict:
         except Exception:
             pass
 
-    # If groq_api_key is empty, fallback to .env if available
     if not settings.get("groq_api_key") and ENV_FILE.exists():
         try:
             with open(ENV_FILE, "r", encoding="utf-8") as f:
@@ -77,7 +76,6 @@ def save_settings(settings: dict):
     except Exception as e:
         print(f"Ошибка сохранения настроек: {e}")
 
-    # Also keep .env in sync for CLI scripts
     if "groq_api_key" in settings:
         try:
             with open(ENV_FILE, "w", encoding="utf-8") as f:
@@ -93,7 +91,6 @@ def set_windows_autostart(enable: bool, app_name: str = "VoiceTyping"):
     try:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_ALL_ACCESS)
         if enable:
-            # Determine path to executable or script
             if getattr(sys, "frozen", False):
                 exe_path = f'"{sys.executable}"'
             else:

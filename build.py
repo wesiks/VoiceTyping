@@ -11,7 +11,6 @@ def main():
 
     base_dir = Path(__file__).resolve().parent
 
-    # 1. Kill running instances to prevent file lock
     subprocess.run(["taskkill", "/F", "/IM", "VoiceTyping.exe"], capture_output=True)
     try:
         subprocess.run([
@@ -22,7 +21,6 @@ def main():
     except Exception:
         pass
 
-    # 2. Clean old builds
     build_dir = base_dir / "build"
     dist_app_dir = base_dir / "dist" / "VoiceTyping"
     
@@ -38,7 +36,6 @@ def main():
         except Exception:
             pass
 
-    # 3. Locate vosk in venv
     venv_vosk = base_dir / ".venv" / "Lib" / "site-packages" / "vosk"
     icon_path = base_dir / "app.ico"
 
@@ -73,11 +70,6 @@ def main():
         print("[УСПЕХ] Сборка успешно завершена!")
         print("Готовая программа: dist\\VoiceTyping\\VoiceTyping.exe")
         print("=" * 60)
-
-        try:
-            os.startfile(str(dist_app_dir))
-        except Exception:
-            pass
     else:
         print("[!] Ошибка во время сборки.")
 

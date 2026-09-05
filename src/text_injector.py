@@ -13,17 +13,14 @@ def insert_text(text: str):
     if not text:
         return
 
-    # Add a trailing space so consecutive dictations don't stick together
     if not text.endswith(" "):
         text_to_paste = text + " "
     else:
         text_to_paste = text
 
-    # Copy to clipboard
     pyperclip.copy(text_to_paste)
     time.sleep(0.05)
 
-    # Emulate Ctrl+V
     ctypes.windll.user32.keybd_event(VK_CONTROL, 0, 0, 0)
     ctypes.windll.user32.keybd_event(VK_V, 0, 0, 0)
     time.sleep(0.02)

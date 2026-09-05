@@ -28,7 +28,6 @@ def init_custom_fonts():
     if _INITIALIZED:
         return
 
-    # 1. Title Font: Manrope
     p_title = _resolve_font("Manrope.ttf")
     if p_title:
         try:
@@ -40,7 +39,6 @@ def init_custom_fonts():
         except Exception:
             pass
 
-    # 2. Body Font: Inter
     p_body = _resolve_font("Inter.ttf")
     if p_body:
         try:
@@ -52,7 +50,6 @@ def init_custom_fonts():
         except Exception:
             pass
 
-    # 3. Mono Font: JetBrains Mono
     p_mono = _resolve_font("JetBrainsMono.ttf")
     if p_mono:
         try:

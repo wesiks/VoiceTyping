@@ -4,7 +4,6 @@ import threading
 import webbrowser
 from pathlib import Path
 
-# Configure Windows console encoding
 if sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -12,7 +11,6 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-# Guarantee working directory is always the application folder
 if getattr(sys, "frozen", False):
     app_dir = Path(sys.executable).resolve().parent
 else:
@@ -24,10 +22,10 @@ except Exception:
 
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
 from PyQt6.QtGui import QAction
+from PyQt6.QtCore import QTimer
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 from pynput import keyboard
 
-# Add src to sys.path
 src_dir = app_dir / "src"
 if str(src_dir) not in sys.path:
     sys.path.insert(0, str(src_dir))
@@ -45,8 +43,9 @@ from live_punctuator import format_live_text
 from settings_window import SettingsWindow
 from tray_icon import create_app_icon
 from font_loader import init_custom_fonts, get_body_font, get_font_families
+from updater import APP_VERSION, check_github_update, open_release_page
+from memory_manager import trim_process_memory
 
-# Global state
 app_settings = load_settings()
 recorder = AudioRecorder()
 stream_recognizer = None
@@ -126,6 +125,8 @@ def _process_final_audio_worker(wav_bytes: bytes, fallback_raw_text: str):
         if bridge:
             bridge.sig_hide.emit()
 
+    threading.Timer(2.0, trim_process_memory).start()
+
 def on_press(key):
     global is_recording
     if not is_target_key(key):
@@ -142,11 +143,12 @@ def on_press(key):
     if bridge:
         bridge.sig_recording_started.emit()
 
-    if stream_recognizer:
+    use_stream = app_settings.get("stream_preview", True) and stream_recognizer is not None
+    if use_stream:
         stream_recognizer.start(on_partial_text_callback=on_live_text)
 
     recorder.start(
-        chunk_callback=stream_recognizer.feed_audio if stream_recognizer else None,
+        chunk_callback=stream_recognizer.feed_audio if use_stream else None,
         level_callback=bridge.sig_audio_level.emit if bridge else None
     )
 
@@ -163,8 +165,9 @@ def on_release(key):
     if app_settings.get("sound_enabled", True):
         play_stop_sound(volume=0.25)
 
+    use_stream = app_settings.get("stream_preview", True) and stream_recognizer is not None
     wav_bytes = recorder.stop()
-    fallback_raw_text = stream_recognizer.stop() if stream_recognizer else ""
+    fallback_raw_text = stream_recognizer.stop() if use_stream else ""
 
     threading.Thread(
         target=_process_final_audio_worker,
@@ -190,7 +193,8 @@ def on_theme_changed(theme_id: str):
         tray.setIcon(create_app_icon(theme["accent"]))
 
 def on_settings_saved(new_settings: dict):
-    global app_settings, current_target_key
+    global app_settings, current_target_key, stream_recognizer
+    new_stream = new_settings.get("stream_preview", True)
     app_settings = new_settings
     current_target_key = parse_target_key(app_settings.get("hotkey", "f8"))
     config.GROQ_API_KEY = app_settings.get("groq_api_key", "").strip()
@@ -198,12 +202,20 @@ def on_settings_saved(new_settings: dict):
     if tray:
         tray.setToolTip(f"VoiceTyping [{app_settings.get('hotkey', 'f8').upper()}]")
 
+    if not new_stream:
+        if stream_recognizer:
+            stream_recognizer.unload()
+            stream_recognizer = None
+        trim_process_memory()
+    elif stream_recognizer is None:
+        stream_recognizer = StreamRecognizer(sample_rate=config.SAMPLE_RATE, lang="ru", auto_load=False)
+        stream_recognizer.preload_async()
+
 def main():
     global hud, bridge, stream_recognizer, tray
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
 
-    # Single Instance Check via local IPC socket
     ipc_name = "VoiceTyping_SingleInstance_IPC"
     client_socket = QLocalSocket()
     client_socket.connectToServer(ipc_name)
@@ -241,7 +253,6 @@ def main():
     bridge.sig_done.connect(hud.show_done)
     bridge.sig_hide.connect(hud.hide_hud)
 
-    # Setup System Tray without emojis
     theme = get_theme(app_settings.get("theme", "claude"))
     tray = QSystemTrayIcon(create_app_icon(theme["accent"]), app)
     tray.setToolTip(f"VoiceTyping [{app_settings.get('hotkey', 'f8').upper()}]")
@@ -283,8 +294,40 @@ def main():
 
     tray_menu.addSeparator()
 
+    act_update = QAction("Проверить обновления...", app)
+    def _manual_update_check():
+        def _worker():
+            res = check_github_update(current_version=config.APP_VERSION)
+            if res.get("has_update"):
+                url = res.get("download_url") or res.get("release_url")
+                tray.showMessage(
+                    "Доступно обновление VoiceTyping",
+                    f"Вышла новая версия v{res.get('latest_version')}. Открываем страницу загрузки...",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    8000
+                )
+                open_release_page(url)
+            elif res.get("error"):
+                tray.showMessage(
+                    "VoiceTyping",
+                    f"Ошибка проверки: {res.get('error')}",
+                    QSystemTrayIcon.MessageIcon.Warning,
+                    4000
+                )
+            else:
+                tray.showMessage(
+                    "VoiceTyping",
+                    f"У вас установлена последняя версия (v{config.APP_VERSION}).",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    4000
+                )
+        threading.Thread(target=_worker, daemon=True).start()
+
+    act_update.triggered.connect(_manual_update_check)
+    tray_menu.addAction(act_update)
+
     act_github = QAction("Репозиторий GitHub", app)
-    act_github.triggered.connect(lambda: webbrowser.open("https://github.com"))
+    act_github.triggered.connect(lambda: webbrowser.open("https://github.com/wesiks/VoiceTyping"))
     tray_menu.addAction(act_github)
 
     act_quit = QAction("Выход", app)
@@ -295,7 +338,16 @@ def main():
     tray.activated.connect(lambda reason: open_settings_dialog() if reason == QSystemTrayIcon.ActivationReason.DoubleClick else None)
     tray.show()
 
-    # Visual startup confirmation: smooth HUD badge and tray notification
+    pending_update_url = None
+
+    def _on_tray_message_clicked():
+        nonlocal pending_update_url
+        if pending_update_url:
+            open_release_page(pending_update_url)
+            pending_update_url = None
+
+    tray.messageClicked.connect(_on_tray_message_clicked)
+
     current_hk = app_settings.get("hotkey", "f8").upper()
     hud.show_greeting(f"VoiceTyping готов • Клавиша {current_hk}")
     tray.showMessage(
@@ -305,16 +357,41 @@ def main():
         3500
     )
 
-    def _init_vosk():
-        global stream_recognizer
-        stream_recognizer = StreamRecognizer(sample_rate=config.SAMPLE_RATE, lang="ru")
-    threading.Thread(target=_init_vosk, daemon=True).start()
+    if app_settings.get("stream_preview", True):
+        stream_recognizer = StreamRecognizer(sample_rate=config.SAMPLE_RATE, lang="ru", auto_load=False)
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(2500, stream_recognizer.preload_async)
+
+    idle_timer = QTimer()
+    idle_timer.setInterval(35000)
+    def _on_idle_tick():
+        trim_process_memory()
+        if stream_recognizer and app_settings.get("stream_preview", True):
+            stream_recognizer.check_idle_unload(idle_seconds=180)
+    idle_timer.timeout.connect(_on_idle_tick)
+    idle_timer.start()
+
+    def _check_startup_updates():
+        nonlocal pending_update_url
+        if not app_settings.get("check_updates", True):
+            return
+        res = check_github_update(current_version=config.APP_VERSION)
+        if res.get("has_update"):
+            pending_update_url = res.get("download_url") or res.get("release_url")
+            latest_ver = res.get("latest_version")
+            tray.showMessage(
+                "Доступно обновление VoiceTyping",
+                f"Вышла новая версия v{latest_ver}. Нажмите для загрузки установщика.",
+                QSystemTrayIcon.MessageIcon.Information,
+                10000
+            )
+
+    QTimer.singleShot(4500, lambda: threading.Thread(target=_check_startup_updates, daemon=True).start())
 
     listener = keyboard.Listener(on_press=on_press, on_release=on_release)
     listener.daemon = True
     listener.start()
 
-    # Open clean settings dialog on first launch if key missing
     if not app_settings.get("groq_api_key", "").strip() and not config.GROQ_API_KEY:
         open_settings_dialog()
 

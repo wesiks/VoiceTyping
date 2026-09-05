@@ -1,5 +1,6 @@
 import math
 import random
+import threading
 import requests
 from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit,
@@ -14,6 +15,7 @@ from font_loader import (
     get_title_font, get_subtitle_font, get_body_font, get_mono_font,
     get_font_families, init_custom_fonts
 )
+from updater import APP_VERSION, check_github_update, open_release_page
 
 class ModernToggle(QWidget):
     """Custom smooth iOS/macOS-style toggle switch."""
@@ -125,8 +127,6 @@ class AtmosphericCanvas(QFrame):
         super().__init__(parent)
         self.theme = theme
         self.time_counter = 0.0
-        
-        # 50 floating snow particles with depth layers
         self.particles = []
         for _ in range(50):
             depth = random.uniform(0.1, 1.0)
@@ -176,13 +176,11 @@ class AtmosphericCanvas(QFrame):
         
         rect = QRectF(0, 0, self.width(), self.height())
         radius = 16.0
-        
-        # 1. Base Obsidian Glass
+
         painter.setPen(QPen(QColor(255, 255, 255, 22), 1.2))
         painter.setBrush(QBrush(QColor(14, 14, 18, 252)))
         painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), radius, radius)
-        
-        # 2. Breathing Ambient Theme Glow
+
         accent_rgb = QColor(self.theme["accent"])
         center_x = self.width() * 0.5
         center_y = self.height() * 0.4
@@ -198,8 +196,7 @@ class AtmosphericCanvas(QFrame):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(rad_grad))
         painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), radius, radius)
-        
-        # 3. 60 FPS Snow Particles
+
         for p in self.particles:
             alpha = p["alpha"]
             r = p["radius"]
@@ -211,7 +208,6 @@ class AtmosphericCanvas(QFrame):
             painter.setBrush(QBrush(QColor(255, 255, 255, alpha)))
             painter.drawEllipse(QPoint(int(p["x"]), int(p["y"])), int(r), int(r))
 
-        # 4. Top Specular Bevel
         top_grad = QLinearGradient(0, 1, 0, 16)
         top_grad.setColorAt(0.0, QColor(255, 255, 255, 45))
         top_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
@@ -229,7 +225,7 @@ class SettingsWindow(QDialog):
         
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setFixedSize(560, 680)
+        self.setFixedSize(560, 780)
         
         self._drag_pos = None
         self.settings = load_settings()
@@ -271,17 +267,18 @@ class SettingsWindow(QDialog):
                 border: 1.5px solid {self.theme['accent']};
             }}
             QComboBox {{
-                background-color: rgba(28, 28, 38, 0.88);
-                border: 1px solid rgba(255, 255, 255, 0.12);
+                background-color: rgba(28, 28, 38, 0.95);
+                border: 1px solid rgba(255, 255, 255, 0.16);
                 border-radius: 8px;
                 color: #FAF8F5;
-                padding: 7px 12px;
+                padding: 4px 10px;
                 font-size: 12px;
                 font-family: '{mono_fam}', monospace;
                 font-weight: 600;
             }}
             QComboBox::drop-down {{
                 border: none;
+                width: 20px;
             }}
             QComboBox QAbstractItemView {{
                 background-color: #1A1A22;
@@ -291,7 +288,7 @@ class SettingsWindow(QDialog):
                 font-family: '{mono_fam}', monospace;
                 font-size: 12px;
             }}
-            QPushButton.primary {{
+            QPushButton[class="primary"], QPushButton.primary {{
                 background-color: {self.theme['accent']};
                 color: #FFFFFF;
                 border: none;
@@ -301,20 +298,22 @@ class SettingsWindow(QDialog):
                 font-weight: 600;
                 font-family: '{body_fam}', sans-serif;
             }}
-            QPushButton.primary:hover {{
+            QPushButton[class="primary"]:hover, QPushButton.primary:hover {{
                 opacity: 0.9;
             }}
-            QPushButton.secondary {{
-                background-color: rgba(28, 28, 38, 0.88);
-                color: #D4D4DC;
-                border: 1px solid rgba(255, 255, 255, 0.12);
+            QPushButton[class="secondary"], QPushButton.secondary {{
+                background-color: rgba(38, 38, 52, 0.92);
+                color: #FAF8F5;
+                border: 1px solid rgba(255, 255, 255, 0.16);
                 border-radius: 8px;
-                padding: 8px 16px;
-                font-size: 12px;
+                padding: 5px 14px;
+                font-size: 11px;
+                font-weight: 600;
                 font-family: '{body_fam}', sans-serif;
             }}
-            QPushButton.secondary:hover {{
-                background-color: rgba(42, 42, 56, 0.95);
+            QPushButton[class="secondary"]:hover, QPushButton.secondary:hover {{
+                background-color: rgba(52, 52, 70, 0.98);
+                border-color: rgba(255, 255, 255, 0.30);
             }}
         """)
 
@@ -328,7 +327,6 @@ class SettingsWindow(QDialog):
         card_layout.setContentsMargins(24, 18, 24, 24)
         card_layout.setSpacing(14)
 
-        # 1. Custom Title Bar
         title_bar = QHBoxLayout()
         title_bar.setContentsMargins(0, 0, 0, 4)
         
@@ -358,7 +356,6 @@ class SettingsWindow(QDialog):
         title_bar.addWidget(btn_close)
         card_layout.addLayout(title_bar)
 
-        # 2. API Section
         api_card = QFrame()
         api_card.setProperty("class", "subcard")
         api_lay = QVBoxLayout(api_card)
@@ -390,7 +387,6 @@ class SettingsWindow(QDialog):
 
         card_layout.addWidget(api_card)
 
-        # 3. Theme Section (Spacious 2-Row Grid Layout - Never Clips!)
         theme_card = QFrame()
         theme_card.setProperty("class", "subcard")
         theme_lay = QVBoxLayout(theme_card)
@@ -405,8 +401,7 @@ class SettingsWindow(QDialog):
 
         current_theme_id = self.settings.get("theme", "claude")
         self.theme_buttons = []
-        
-        # Arranged in 2 balanced rows of 3 columns (perfect 3x2 grid)
+
         theme_items = list(THEMES.items())
         positions = [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
 
@@ -421,21 +416,22 @@ class SettingsWindow(QDialog):
         theme_lay.addLayout(grid_themes)
         card_layout.addWidget(theme_card)
 
-        # 4. Controls Section
         ctrl_card = QFrame()
         ctrl_card.setProperty("class", "subcard")
         ctrl_lay = QVBoxLayout(ctrl_card)
         ctrl_lay.setSpacing(12)
 
-        # Hotkey row
         h_hotkey = QHBoxLayout()
         lbl_hotkey = QLabel("Клавиша Push-to-Talk:")
         lbl_hotkey.setFont(get_body_font(11))
         h_hotkey.addWidget(lbl_hotkey)
+        h_hotkey.addStretch()
         
         self.combo_hotkey = QComboBox()
         self.combo_hotkey.addItems(["F8", "F4", "F7", "Caps_Lock", "Scroll_Lock", "Pause", "Insert"])
         self.combo_hotkey.setFont(get_mono_font(11, bold=True))
+        self.combo_hotkey.setFixedWidth(125)
+        self.combo_hotkey.setFixedHeight(28)
         cur_hotkey = self.settings.get("hotkey", "f8").upper()
         idx = self.combo_hotkey.findText(cur_hotkey)
         if idx >= 0:
@@ -443,7 +439,6 @@ class SettingsWindow(QDialog):
         h_hotkey.addWidget(self.combo_hotkey)
         ctrl_lay.addLayout(h_hotkey)
 
-        # Sound toggle row
         h_sound = QHBoxLayout()
         lbl_sound = QLabel("Мягкий звуковой сигнал при старте/остановке")
         lbl_sound.setFont(get_body_font(11))
@@ -456,7 +451,6 @@ class SettingsWindow(QDialog):
         h_sound.addWidget(self.toggle_sound)
         ctrl_lay.addLayout(h_sound)
 
-        # Autostart toggle row
         h_auto = QHBoxLayout()
         lbl_auto = QLabel("Запускать при включении Windows")
         lbl_auto.setFont(get_body_font(11))
@@ -469,16 +463,58 @@ class SettingsWindow(QDialog):
         h_auto.addWidget(self.toggle_autostart)
         ctrl_lay.addLayout(h_auto)
 
+        h_stream = QHBoxLayout()
+        lbl_stream = QLabel("Потоковый предпросмотр речи")
+        lbl_stream.setFont(get_body_font(11))
+        h_stream.addWidget(lbl_stream)
+        h_stream.addStretch()
+        self.toggle_stream = ModernToggle(
+            checked=self.settings.get("stream_preview", True),
+            accent_color=self.theme["accent"]
+        )
+        h_stream.addWidget(self.toggle_stream)
+        ctrl_lay.addLayout(h_stream)
+
+        lbl_stream_hint = QLabel("Локальный вывод слов на лету (Vosk). Отключите для экономии памяти до ~30 МБ.")
+        lbl_stream_hint.setFont(get_body_font(9))
+        lbl_stream_hint.setStyleSheet("color: #8C8C9A; padding-left: 2px; margin-top: -2px; margin-bottom: 6px;")
+        ctrl_lay.addWidget(lbl_stream_hint)
+
+        h_updates = QHBoxLayout()
+        lbl_updates = QLabel("Автоматически проверять обновления")
+        lbl_updates.setFont(get_body_font(11))
+        h_updates.addWidget(lbl_updates)
+        h_updates.addStretch()
+        self.toggle_updates = ModernToggle(
+            checked=self.settings.get("check_updates", True),
+            accent_color=self.theme["accent"]
+        )
+        h_updates.addWidget(self.toggle_updates)
+        ctrl_lay.addLayout(h_updates)
+
+        h_version = QHBoxLayout()
+        self.lbl_version = QLabel(f"Версия VoiceTyping: v{APP_VERSION}")
+        self.lbl_version.setFont(get_mono_font(10))
+        self.lbl_version.setStyleSheet("color: #9E9EA8;")
+        h_version.addWidget(self.lbl_version)
+        h_version.addStretch()
+        self.btn_check_update = QPushButton("Проверить обновления")
+        self.btn_check_update.setProperty("class", "secondary")
+        self.btn_check_update.setFont(get_body_font(10, demi_bold=True))
+        self.btn_check_update.setFixedHeight(28)
+        self.btn_check_update.setFixedWidth(175)
+        self.btn_check_update.clicked.connect(self._on_check_update_clicked)
+        h_version.addWidget(self.btn_check_update)
+        ctrl_lay.addLayout(h_version)
+
         card_layout.addWidget(ctrl_card)
 
-        # 5. Inline Toast Label
         self.toast_label = QLabel("")
         self.toast_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.toast_label.setFont(get_subtitle_font(10, demi_bold=True))
         self.toast_label.setFixedHeight(22)
         card_layout.addWidget(self.toast_label)
 
-        # 6. Save Button
         h_bottom = QHBoxLayout()
         h_bottom.addStretch()
 
@@ -509,7 +545,7 @@ class SettingsWindow(QDialog):
         color = "#F87171" if is_error else "#34D399"
         self.toast_label.setStyleSheet(f"color: {color};")
         self.toast_label.setText(message)
-        QTimer.singleShot(3500, lambda: self.toast_label.setText(""))
+        QTimer.singleShot(4000, lambda: self.toast_label.setText(""))
 
     def _on_theme_selected(self, theme_id):
         self.settings["theme"] = theme_id
@@ -521,6 +557,8 @@ class SettingsWindow(QDialog):
 
         self.toggle_sound.set_accent(self.theme["accent"])
         self.toggle_autostart.set_accent(self.theme["accent"])
+        self.toggle_stream.set_accent(self.theme["accent"])
+        self.toggle_updates.set_accent(self.theme["accent"])
         self.btn_save.setStyleSheet(f"background-color: {self.theme['accent']};")
         
         self.theme_changed.emit(theme_id)
@@ -544,10 +582,36 @@ class SettingsWindow(QDialog):
         except Exception as e:
             self._show_toast(f"Ошибка соединения: {e}", is_error=True)
 
+    def _on_check_update_clicked(self):
+        self.btn_check_update.setEnabled(False)
+        self.btn_check_update.setText("Проверка...")
+        self.toast_label.setText("")
+
+        def _worker():
+            res = check_github_update(current_version=APP_VERSION)
+            QTimer.singleShot(0, lambda: self._handle_update_result(res))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _handle_update_result(self, res: dict):
+        self.btn_check_update.setEnabled(True)
+        self.btn_check_update.setText("Проверить обновления")
+
+        if res.get("has_update"):
+            latest = res.get("latest_version")
+            self._show_toast(f"Доступно обновление v{latest}!")
+            open_release_page(res.get("download_url") or res.get("release_url"))
+        elif res.get("error"):
+            self._show_toast(f"{res.get('error')}", is_error=True)
+        else:
+            self._show_toast(f"У вас актуальная версия (v{APP_VERSION})")
+
     def _save(self):
         self.settings["groq_api_key"] = self.api_input.text().strip()
         self.settings["hotkey"] = self.combo_hotkey.currentText().lower()
         self.settings["sound_enabled"] = self.toggle_sound.isChecked()
+        self.settings["stream_preview"] = self.toggle_stream.isChecked()
+        self.settings["check_updates"] = self.toggle_updates.isChecked()
         
         autostart = self.toggle_autostart.isChecked()
         self.settings["autostart"] = autostart

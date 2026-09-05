@@ -23,15 +23,11 @@ class AudioRecorder:
             with self._lock:
                 self._frames.append(chunk)
 
-            # Highly sensitive, responsive RMS audio volume level
             if self._level_callback:
                 try:
                     float_data = chunk.astype(np.float32) / 32768.0
                     rms = float(np.sqrt(np.mean(float_data ** 2)))
-                    # Boost sensitivity with soft logarithmic compression
-                    # so normal and quiet voice creates lively, dynamic wave movement
                     scaled = min(1.0, rms * 14.0)
-                    # Non-linear power curve for punchy wave dynamics
                     level = float(np.power(scaled, 0.75))
                     self._level_callback(level)
                 except Exception:
@@ -55,7 +51,7 @@ class AudioRecorder:
             samplerate=self.sample_rate,
             channels=self.channels,
             dtype="int16",
-            blocksize=1200,  # 75ms per block for ultra-responsive 13Hz-60Hz audio physics
+            blocksize=1200,
             callback=self._audio_callback
         )
         self._stream.start()

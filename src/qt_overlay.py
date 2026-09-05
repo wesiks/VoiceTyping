@@ -28,8 +28,7 @@ class ModernHUD(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
-        
-        # Dimensions & padding for multi-layer floating drop shadow
+
         self.pad_x = 24
         self.pad_y = 20
         self.card_w = 520
@@ -48,29 +47,24 @@ class ModernHUD(QWidget):
         self.hidden_y = self.screen_h + 15
         
         self.setGeometry(self.pos_x, self.hidden_y, self.win_w, self.win_h)
-        
-        # Theme
+
         self.theme = get_theme(theme_id)
-        
-        # State
-        self.state = "idle"  # "recording", "processing", "done"
+
+        self.state = "idle"
         self.display_text = "Слушаю..."
         self.target_level = 0.0
         self.current_level = 0.0
         self.phase = 0.0
-        
-        # 60 FPS physics & wave animation timer
+
         self.physics_timer = QTimer(self)
         self.physics_timer.setInterval(16)
         self.physics_timer.timeout.connect(self._physics_step)
         self.physics_timer.start()
-        
-        # Auto-hide timer
+
         self.hide_timer = QTimer(self)
         self.hide_timer.setSingleShot(True)
         self.hide_timer.timeout.connect(self.hide_hud)
-        
-        # Slide animations
+
         self.pos_anim = QPropertyAnimation(self, b"pos")
         self.pos_anim.setDuration(190)
         self.pos_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
@@ -170,16 +164,14 @@ class ModernHUD(QWidget):
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         
         card_rect = QRectF(self.pad_x, self.pad_y, self.card_w, self.card_h)
-        
-        # 1. Soft Layered Floating Shadows
+
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(QColor(0, 0, 0, 70)))
         painter.drawRoundedRect(card_rect.adjusted(-2, 3, 2, 7), self.radius + 1, self.radius + 1)
         
         painter.setBrush(QBrush(QColor(0, 0, 0, 45)))
         painter.drawRoundedRect(card_rect.adjusted(-1, 1, 1, 4), self.radius, self.radius)
-        
-        # 2. Dynamic Ambient Glow & Border from Theme
+
         t = self.theme
         if self.state == "recording":
             glow_c = QColor(*t["glow"])
@@ -198,13 +190,11 @@ class ModernHUD(QWidget):
             painter.setBrush(QBrush(glow_c))
             painter.drawRoundedRect(card_rect.adjusted(-2, -2, 2, 2), self.radius + 2, self.radius + 2)
 
-        # 3. Main Card Body
         bg_c = QColor(*t["card_bg"])
         painter.setPen(QPen(border_c, 1.2))
         painter.setBrush(QBrush(bg_c))
         painter.drawRoundedRect(card_rect, self.radius, self.radius)
-        
-        # 4. Top Specular Bevel
+
         top_grad = QLinearGradient(0, card_rect.top() + 1, 0, card_rect.top() + 14)
         top_grad.setColorAt(0.0, QColor(255, 255, 255, 40))
         top_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
@@ -212,7 +202,6 @@ class ModernHUD(QWidget):
         painter.setBrush(QBrush(top_grad))
         painter.drawRoundedRect(card_rect.adjusted(2, 1, -2, -22), self.radius - 1, self.radius - 1)
 
-        # 5. Dynamic Organic Waveform or Vector Indicators (Zero Emojis)
         center_y = card_rect.center().y()
         start_x = card_rect.left() + 20.0
         gap = 5.2
@@ -239,7 +228,6 @@ class ModernHUD(QWidget):
                 painter.drawRoundedRect(QRectF(bx, by, bar_w, h), 1.4, 1.4)
                 
         elif self.state == "processing":
-            # Clean vector pulsing ring
             cx = card_rect.left() + 30.0
             cy = center_y
             pulse_r = 5.0 + 1.5 * math.sin(self.phase * 1.5)
@@ -248,7 +236,6 @@ class ModernHUD(QWidget):
             painter.drawEllipse(QPoint(int(cx), int(cy)), int(pulse_r), int(pulse_r))
             
         elif self.state == "done":
-            # Clean vector checkmark path
             cx = card_rect.left() + 30.0
             cy = center_y
             painter.setPen(QPen(QColor(52, 211, 153), 2.0, cap=Qt.PenCapStyle.RoundCap, join=Qt.PenJoinStyle.RoundJoin))
@@ -259,7 +246,6 @@ class ModernHUD(QWidget):
             path.lineTo(cx + 6.0, cy - 4.0)
             painter.drawPath(path)
 
-        # 6. Live Text (Zero Emojis, Clean Typography)
         text_x = card_rect.left() + 54
         text_w = self.card_w - 54 - 20
         text_rect = QRectF(text_x, card_rect.top(), text_w, self.card_h)
