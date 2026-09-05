@@ -1,11 +1,12 @@
-import webbrowser
+import math
+import random
 import requests
 from PyQt6.QtWidgets import (
     QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QComboBox, QFrame, QButtonGroup, QGraphicsDropShadowEffect
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, pyqtProperty, QPoint, QRectF, QTimer
-from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QFont, QLinearGradient
+from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QFont, QLinearGradient, QRadialGradient
 
 from app_settings import load_settings, save_settings, set_windows_autostart
 from themes import THEMES, get_theme
@@ -59,19 +60,17 @@ class ModernToggle(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         
-        # Track
         track_color = self._accent if self._checked else QColor(44, 44, 54)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(track_color))
         painter.drawRoundedRect(0, 0, 40, 22, 11, 11)
         
-        # Thumb
         painter.setBrush(QBrush(QColor(255, 255, 255)))
         painter.drawEllipse(int(self._thumb_pos), 2, 18, 18)
 
 
 class ThemeCard(QPushButton):
-    """Custom non-flat theme selector pill with circular swatch."""
+    """Custom theme selector pill with circular swatch."""
     def __init__(self, theme_id, theme_info, is_active=False, parent=None):
         super().__init__(parent)
         self.theme_id = theme_id
@@ -88,8 +87,8 @@ class ThemeCard(QPushButton):
 
     def _update_style(self):
         accent = self.info["accent"]
-        bg = "#23232C" if self.isChecked() else "#1A1A22"
-        border = f"1.5px solid {accent}" if self.isChecked() else "1px solid #2C2C38"
+        bg = "rgba(35, 35, 46, 0.85)" if self.isChecked() else "rgba(24, 24, 32, 0.65)"
+        border = f"1.5px solid {accent}" if self.isChecked() else "1px solid rgba(255, 255, 255, 0.10)"
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: {bg};
@@ -103,19 +102,124 @@ class ThemeCard(QPushButton):
                 text-align: left;
             }}
             QPushButton:hover {{
-                background-color: #242430;
+                background-color: rgba(45, 45, 60, 0.85);
                 border-color: {accent};
             }}
         """)
 
     def paintEvent(self, event):
         super().paintEvent(event)
-        # Draw color circle on the left
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QBrush(QColor(self.info["accent"])))
         painter.drawEllipse(12, 13, 10, 10)
+
+
+class AtmosphericCanvas(QFrame):
+    """Background container with floating animated snow / stardust particles and breathing ambient glow."""
+    def __init__(self, theme, parent=None):
+        super().__init__(parent)
+        self.theme = theme
+        self.time_counter = 0.0
+        
+        # Initialize 50 floating snow/stardust particles with 3D depth layers
+        self.particles = []
+        for _ in range(50):
+            # Depth ratio: 0.0 (far, tiny, slow) to 1.0 (near, larger, faster)
+            depth = random.uniform(0.1, 1.0)
+            self.particles.append({
+                "x": random.uniform(0, 520),
+                "y": random.uniform(0, 620),
+                "radius": 0.9 + (depth * 1.8),
+                "speed_y": 0.4 + (depth * 0.9),
+                "sway_speed": random.uniform(0.015, 0.035),
+                "sway_phase": random.uniform(0, math.pi * 2),
+                "alpha": int(35 + (depth * 135)),
+                "depth": depth
+            })
+
+        # 60 FPS animation timer
+        self.anim_timer = QTimer(self)
+        self.anim_timer.setInterval(16)
+        self.anim_timer.timeout.connect(self._update_particles)
+        self.anim_timer.start()
+
+    def set_theme(self, theme):
+        self.theme = theme
+        self.update()
+
+    def _update_particles(self):
+        self.time_counter += 0.02
+        w = max(100, self.width())
+        h = max(100, self.height())
+
+        for p in self.particles:
+            p["y"] += p["speed_y"]
+            p["sway_phase"] += p["sway_speed"]
+            p["x"] += math.sin(p["sway_phase"]) * (0.25 + 0.3 * p["depth"])
+
+            if p["y"] > h + 5:
+                p["y"] = -5
+                p["x"] = random.uniform(0, w)
+            if p["x"] < -5:
+                p["x"] = w + 5
+            elif p["x"] > w + 5:
+                p["x"] = -5
+
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        rect = QRectF(0, 0, self.width(), self.height())
+        radius = 16.0
+        
+        # 1. Base Dark Obsidian Body
+        painter.setPen(QPen(QColor(255, 255, 255, 22), 1.2))
+        painter.setBrush(QBrush(QColor(14, 14, 18, 252)))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), radius, radius)
+        
+        # 2. Atmospheric Breathing Radial Glow (Theme Accent)
+        accent_rgb = QColor(self.theme["accent"])
+        center_x = self.width() * 0.5
+        center_y = self.height() * 0.4
+        
+        # Breathing pulsation
+        breath = 0.06 + 0.03 * math.sin(self.time_counter * 0.9)
+        glow_alpha = int(breath * 255)
+        
+        rad_grad = QRadialGradient(center_x, center_y, self.width() * 0.55)
+        rad_grad.setColorAt(0.0, QColor(accent_rgb.red(), accent_rgb.green(), accent_rgb.blue(), glow_alpha))
+        rad_grad.setColorAt(0.65, QColor(accent_rgb.red(), accent_rgb.green(), accent_rgb.blue(), int(glow_alpha * 0.25)))
+        rad_grad.setColorAt(1.0, QColor(0, 0, 0, 0))
+        
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QBrush(rad_grad))
+        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), radius, radius)
+        
+        # 3. Floating Snow / Stardust Particles (60 FPS)
+        for p in self.particles:
+            alpha = p["alpha"]
+            r = p["radius"]
+            
+            # Subtle outer glow for larger foreground snowflakes
+            if p["depth"] > 0.65:
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(QColor(255, 255, 255, int(alpha * 0.25))))
+                painter.drawEllipse(QPoint(int(p["x"]), int(p["y"])), int(r * 2.0), int(r * 2.0))
+
+            # Core particle
+            painter.setBrush(QBrush(QColor(255, 255, 255, alpha)))
+            painter.drawEllipse(QPoint(int(p["x"]), int(p["y"])), int(r), int(r))
+
+        # 4. Top Specular Glass Bevel
+        top_grad = QLinearGradient(0, 1, 0, 16)
+        top_grad.setColorAt(0.0, QColor(255, 255, 255, 45))
+        top_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
+        painter.setBrush(QBrush(top_grad))
+        painter.drawRoundedRect(rect.adjusted(2, 1, -2, -self.height() + 16), radius - 1, radius - 1)
 
 
 class SettingsWindow(QDialog):
@@ -125,7 +229,6 @@ class SettingsWindow(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         
-        # Frameless modern window with translucent rounded body
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setFixedSize(540, 650)
@@ -137,32 +240,25 @@ class SettingsWindow(QDialog):
         self._init_ui()
 
     def _init_ui(self):
-        # Master layout inside translucent padding for drop shadow
         master_layout = QVBoxLayout(self)
         master_layout.setContentsMargins(16, 16, 16, 16)
         
-        # Container Card (Machined obsidian body)
-        self.card = QFrame()
-        self.card.setObjectName("MainCard")
+        # Atmospheric Canvas with Snow and Depth
+        self.card = AtmosphericCanvas(self.theme)
         self.card.setStyleSheet("""
-            QFrame#MainCard {
-                background-color: #121216;
-                border: 1px solid #262632;
-                border-radius: 16px;
-            }
             QLabel {
                 color: #FAF8F5;
                 font-family: 'Segoe UI Variable Text', 'Segoe UI', sans-serif;
             }
             QFrame.subcard {
-                background-color: #191920;
-                border: 1px solid #262632;
-                border-radius: 10px;
+                background-color: rgba(22, 22, 30, 0.72);
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 12px;
                 padding: 12px;
             }
             QLineEdit {
-                background-color: #20202A;
-                border: 1px solid #303040;
+                background-color: rgba(28, 28, 38, 0.85);
+                border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 8px;
                 color: #FAF8F5;
                 padding: 7px 12px;
@@ -172,8 +268,8 @@ class SettingsWindow(QDialog):
                 border: 1px solid #E06A38;
             }
             QComboBox {
-                background-color: #20202A;
-                border: 1px solid #303040;
+                background-color: rgba(28, 28, 38, 0.85);
+                border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 8px;
                 color: #FAF8F5;
                 padding: 6px 12px;
@@ -183,7 +279,7 @@ class SettingsWindow(QDialog):
                 border: none;
             }
             QComboBox QAbstractItemView {
-                background-color: #1C1C24;
+                background-color: #1A1A22;
                 color: #FAF8F5;
                 selection-background-color: #2D2D3A;
                 border: 1px solid #303040;
@@ -201,30 +297,30 @@ class SettingsWindow(QDialog):
                 background-color: #F07A48;
             }
             QPushButton.secondary {
-                background-color: #20202A;
+                background-color: rgba(28, 28, 38, 0.85);
                 color: #D4D4DC;
-                border: 1px solid #303040;
+                border: 1px solid rgba(255, 255, 255, 0.12);
                 border-radius: 8px;
                 padding: 7px 14px;
                 font-size: 12px;
             }
             QPushButton.secondary:hover {
-                background-color: #2A2A38;
+                background-color: rgba(38, 38, 52, 0.95);
             }
         """)
 
-        # Soft drop shadow around window
+        # Soft ambient elevation shadow
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(24)
-        shadow.setColor(QColor(0, 0, 0, 110))
-        shadow.setOffset(0, 8)
+        shadow.setBlurRadius(28)
+        shadow.setColor(QColor(0, 0, 0, 130))
+        shadow.setOffset(0, 10)
         self.card.setGraphicsEffect(shadow)
 
         card_layout = QVBoxLayout(self.card)
         card_layout.setContentsMargins(22, 16, 22, 22)
         card_layout.setSpacing(14)
 
-        # 1. Custom Minimalist Title Bar
+        # 1. Title Bar
         title_bar = QHBoxLayout()
         title_bar.setContentsMargins(0, 0, 0, 4)
         
@@ -246,7 +342,7 @@ class SettingsWindow(QDialog):
                 font-size: 13px;
             }
             QPushButton:hover {
-                background-color: #242430;
+                background-color: rgba(255, 255, 255, 0.10);
                 color: #FFFFFF;
             }
         """)
@@ -351,7 +447,7 @@ class SettingsWindow(QDialog):
 
         card_layout.addWidget(ctrl_card)
 
-        # 5. Inline Toast / Status Message
+        # 5. Inline Toast Label
         self.toast_label = QLabel("")
         self.toast_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.toast_label.setFont(QFont("Segoe UI Variable Text", 9, QFont.Weight.Medium))
@@ -372,7 +468,6 @@ class SettingsWindow(QDialog):
         master_layout.addWidget(self.card)
 
     def mousePressEvent(self, event):
-        """Allows dragging the frameless window from its header."""
         if event.button() == Qt.MouseButton.LeftButton and event.position().y() < 55:
             self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
@@ -395,6 +490,7 @@ class SettingsWindow(QDialog):
         self.settings["theme"] = theme_id
         self.theme = get_theme(theme_id)
         
+        self.card.set_theme(self.theme)
         for btn in self.theme_buttons:
             btn.set_active(btn.theme_id == theme_id)
 
