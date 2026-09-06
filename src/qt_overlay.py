@@ -5,7 +5,7 @@ from PyQt6.QtCore import Qt, QObject, pyqtSignal, QTimer, QPropertyAnimation, QE
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QFont, QFontMetrics, QLinearGradient, QPainterPath
 
 from themes import get_theme
-from font_loader import get_app_font
+from font_loader import get_body_font, get_mono_font
 
 class AudioSignalBridge(QObject):
     """Thread-safe signal bridge between audio threads and Qt UI."""
@@ -18,7 +18,7 @@ class AudioSignalBridge(QObject):
     sig_theme_changed = pyqtSignal(str)
 
 class ModernHUD(QWidget):
-    def __init__(self, theme_id: str = "claude"):
+    def __init__(self, theme_id: str = "claude", hotkey: str = "F8"):
         super().__init__()
         
         self.setWindowFlags(
@@ -29,14 +29,14 @@ class ModernHUD(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
 
-        self.pad_x = 24
-        self.pad_y = 20
-        self.card_w = 520
-        self.card_h = 48
-        self.radius = 24
+        self.pad_x = 24.0
+        self.pad_y = 20.0
+        self.card_w = 400.0
+        self.card_h = 44.0
+        self.radius = 22.0
         
-        self.win_w = self.card_w + (self.pad_x * 2)
-        self.win_h = self.card_h + (self.pad_y * 2)
+        self.win_w = int(self.card_w + (self.pad_x * 2))
+        self.win_h = int(self.card_h + (self.pad_y * 2))
         
         screen = QApplication.primaryScreen().geometry()
         self.screen_w = screen.width()
@@ -49,6 +49,7 @@ class ModernHUD(QWidget):
         self.setGeometry(self.pos_x, self.hidden_y, self.win_w, self.win_h)
 
         self.theme = get_theme(theme_id)
+        self.hotkey_str = hotkey.upper().strip()
 
         self.state = "idle"
         self.display_text = "Слушаю..."
@@ -73,6 +74,12 @@ class ModernHUD(QWidget):
         """Switches visual theme in real-time."""
         self.theme = get_theme(theme_id)
         self.update()
+
+    def set_hotkey(self, hotkey: str):
+        """Updates active hotkey badge text."""
+        if hotkey:
+            self.hotkey_str = hotkey.upper().strip()
+            self.update()
 
     def _physics_step(self):
         """Dynamic 60 FPS wave physics and level interpolation."""
@@ -114,6 +121,7 @@ class ModernHUD(QWidget):
 
     def show_processing(self):
         self.state = "processing"
+        self.display_text = "Обработка..."
         self.target_level = 0.0
         self.update()
 
@@ -123,13 +131,19 @@ class ModernHUD(QWidget):
         if final_text:
             self.display_text = final_text.strip()
         self.update()
-        self.hide_timer.start(800)
+        self.hide_timer.start(1600)
 
-    def show_greeting(self, text: str = "VoiceTyping готов • Нажмите F8"):
-        """Shows instant visual feedback on startup so the user immediately knows the app is alive."""
+    def show_greeting(self, hotkey: str = None):
+        """Shows instant visual feedback on startup matching mockup 1."""
         self.hide_timer.stop()
-        self.state = "done"
-        self.display_text = text
+        if hotkey:
+            if "•" in hotkey or "готов" in hotkey.lower():
+                parts = hotkey.split()
+                self.hotkey_str = parts[-1].upper().strip()
+            else:
+                self.hotkey_str = hotkey.upper().strip()
+        self.state = "greeting"
+        self.display_text = "VoiceTyping готов • "
         self.target_level = 0.0
         self.show()
         
@@ -139,7 +153,7 @@ class ModernHUD(QWidget):
         self.pos_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         self.pos_anim.start()
         self.update()
-        self.hide_timer.start(2400)
+        self.hide_timer.start(2600)
 
     def hide_hud(self):
         self.state = "idle"
@@ -165,99 +179,154 @@ class ModernHUD(QWidget):
         
         card_rect = QRectF(self.pad_x, self.pad_y, self.card_w, self.card_h)
 
+        # 1. Subtle drop shadow
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(QColor(0, 0, 0, 70)))
-        painter.drawRoundedRect(card_rect.adjusted(-2, 3, 2, 7), self.radius + 1, self.radius + 1)
-        
-        painter.setBrush(QBrush(QColor(0, 0, 0, 45)))
-        painter.drawRoundedRect(card_rect.adjusted(-1, 1, 1, 4), self.radius, self.radius)
+        painter.setBrush(QBrush(QColor(0, 0, 0, 90)))
+        painter.drawRoundedRect(card_rect.adjusted(-1, 2, 1, 5), self.radius, self.radius)
 
+        # 2. Card background and border
         t = self.theme
-        if self.state == "recording":
-            glow_c = QColor(*t["glow"])
-            border_c = QColor(*t["border"])
-        elif self.state == "processing":
-            glow_c = QColor(139, 92, 246, 35)
-            border_c = QColor(167, 139, 250, 190)
-        elif self.state == "done":
-            glow_c = QColor(16, 185, 129, 35)
-            border_c = QColor(52, 211, 153, 190)
-        else:
-            glow_c = QColor(0, 0, 0, 0)
-            border_c = QColor(255, 255, 255, 28)
-
-        if glow_c.alpha() > 0:
-            painter.setBrush(QBrush(glow_c))
-            painter.drawRoundedRect(card_rect.adjusted(-2, -2, 2, 2), self.radius + 2, self.radius + 2)
-
-        bg_c = QColor(*t["card_bg"])
-        painter.setPen(QPen(border_c, 1.2))
-        painter.setBrush(QBrush(bg_c))
+        bg_color = QColor(*t["card_bg"])
+        border_color = QColor(255, 255, 255, 20)
+        painter.setPen(QPen(border_color, 1.0))
+        painter.setBrush(QBrush(bg_color))
         painter.drawRoundedRect(card_rect, self.radius, self.radius)
 
-        top_grad = QLinearGradient(0, card_rect.top() + 1, 0, card_rect.top() + 14)
-        top_grad.setColorAt(0.0, QColor(255, 255, 255, 40))
-        top_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(top_grad))
-        painter.drawRoundedRect(card_rect.adjusted(2, 1, -2, -22), self.radius - 1, self.radius - 1)
+        accent = QColor(t.get("accent", "#E2555F"))
+        dim_dot = QColor(58, 58, 69)
+        gray_dot = QColor(101, 100, 109)
 
         center_y = card_rect.center().y()
         start_x = card_rect.left() + 20.0
-        gap = 5.2
-        bar_w = 2.8
-        
+        dot_step = 5.8
+        bar_w = 2.6
+
+        # 3. Left 5 indicators
         if self.state == "recording":
-            max_swing = 22.0
-            base_h = 4.0
-            
-            bar_colors = [QColor(*rgb) for rgb in t["bar_colors"]]
+            max_swing = 15.0
+            base_h = 4.6
             wave_offsets = [0.0, 0.75, 1.5, 2.25, 3.0]
-            center_weights = [0.55, 0.85, 1.0, 0.85, 0.55]
-            
+            center_weights = [0.50, 0.85, 1.0, 0.85, 0.50]
             for i in range(5):
                 wave_factor = 0.5 + 0.5 * math.sin(self.phase + wave_offsets[i])
                 active_h = (self.current_level * max_swing * center_weights[i]) * (0.6 + 0.4 * wave_factor)
                 h = max(base_h, base_h + active_h)
-                
-                bx = start_x + (i * gap)
+                bx = start_x + (i * dot_step)
                 by = center_y - (h / 2.0)
-                
-                painter.setBrush(QBrush(bar_colors[i]))
+                painter.setBrush(QBrush(accent))
                 painter.setPen(Qt.PenStyle.NoPen)
-                painter.drawRoundedRect(QRectF(bx, by, bar_w, h), 1.4, 1.4)
-                
-        elif self.state == "processing":
-            cx = card_rect.left() + 30.0
-            cy = center_y
-            pulse_r = 5.0 + 1.5 * math.sin(self.phase * 1.5)
-            painter.setPen(QPen(QColor(167, 139, 250), 1.6))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(QPoint(int(cx), int(cy)), int(pulse_r), int(pulse_r))
-            
-        elif self.state == "done":
-            cx = card_rect.left() + 30.0
-            cy = center_y
-            painter.setPen(QPen(QColor(52, 211, 153), 2.0, cap=Qt.PenCapStyle.RoundCap, join=Qt.PenJoinStyle.RoundJoin))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            path = QPainterPath()
-            path.moveTo(cx - 5.0, cy)
-            path.lineTo(cx - 1.0, cy + 4.0)
-            path.lineTo(cx + 6.0, cy - 4.0)
-            painter.drawPath(path)
-
-        text_x = card_rect.left() + 54
-        text_w = self.card_w - 54 - 20
-        text_rect = QRectF(text_x, card_rect.top(), text_w, self.card_h)
-        
-        font = get_app_font(11, demi_bold=False)
-        painter.setFont(font)
-        
-        if self.state == "recording" and self.display_text == "Слушаю...":
-            painter.setPen(QColor(135, 135, 145))
+                painter.drawRoundedRect(QRectF(bx, by, bar_w, h), 1.3, 1.3)
         else:
-            painter.setPen(QColor(*t["text"]))
-            
+            h = 5.0
+            for i in range(5):
+                bx = start_x + (i * dot_step)
+                by = center_y - (h / 2.0)
+                painter.setBrush(QBrush(dim_dot))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawRoundedRect(QRectF(bx, by, bar_w, h), 1.3, 1.3)
+
+        # 4. Right status indicators
+        right_dot_x = card_rect.right() - 37.0
+        right_icon_x = card_rect.right() - 19.5
+        dot_r = 4.8
+
+        right_margin = 44.0
+
+        if self.state == "greeting":
+            # Single gray dot
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(gray_dot))
+            painter.drawEllipse(QRectF(card_rect.right() - 24.0 - dot_r, center_y - dot_r, dot_r * 2, dot_r * 2))
+            right_margin = 38.0
+
+        elif self.state == "recording":
+            # Accent dot
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(accent))
+            painter.drawEllipse(QRectF(right_dot_x - dot_r, center_y - dot_r, dot_r * 2, dot_r * 2))
+
+            # Mic outline icon
+            painter.setPen(QPen(accent, 1.35, cap=Qt.PenCapStyle.RoundCap, join=Qt.PenJoinStyle.RoundJoin))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            mic_w = 4.6
+            mic_h = 7.6
+            painter.drawRoundedRect(QRectF(right_icon_x - mic_w / 2, center_y - 6.5, mic_w, mic_h), mic_w / 2, mic_w / 2)
+            bracket_w = 8.4
+            bracket_h = 7.6
+            p_bracket = QPainterPath()
+            p_bracket.arcMoveTo(QRectF(right_icon_x - bracket_w / 2, center_y - 4.2, bracket_w, bracket_h), 180)
+            p_bracket.arcTo(QRectF(right_icon_x - bracket_w / 2, center_y - 4.2, bracket_w, bracket_h), 180, -180)
+            painter.drawPath(p_bracket)
+            painter.drawLine(QPoint(int(right_icon_x), int(center_y + 3.4)), QPoint(int(right_icon_x), int(center_y + 5.8)))
+            painter.drawLine(QPoint(int(right_icon_x - 2.8), int(center_y + 5.8)), QPoint(int(right_icon_x + 2.8), int(center_y + 5.8)))
+            right_margin = 56.0
+
+        elif self.state == "processing":
+            # Gray dot
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(gray_dot))
+            painter.drawEllipse(QRectF(right_dot_x - dot_r, center_y - dot_r, dot_r * 2, dot_r * 2))
+
+            # Spinner ring
+            spinner_r = 5.8
+            s_rect = QRectF(right_icon_x - spinner_r, center_y - spinner_r, spinner_r * 2, spinner_r * 2)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(QColor(42, 42, 54), 1.5))
+            painter.drawEllipse(s_rect)
+            painter.setPen(QPen(accent, 1.5, cap=Qt.PenCapStyle.RoundCap))
+            start_angle = int((self.phase * 240) % 360 * 16)
+            painter.drawArc(s_rect, start_angle, 100 * 16)
+            right_margin = 56.0
+
+        elif self.state == "done":
+            # Accent dot
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(accent))
+            painter.drawEllipse(QRectF(right_dot_x - dot_r, center_y - dot_r, dot_r * 2, dot_r * 2))
+
+            # Checkmark
+            painter.setPen(QPen(accent, 1.7, cap=Qt.PenCapStyle.RoundCap, join=Qt.PenJoinStyle.RoundJoin))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            p_chk = QPainterPath()
+            p_chk.moveTo(right_icon_x - 3.4, center_y + 0.1)
+            p_chk.lineTo(right_icon_x - 0.7, center_y + 3.0)
+            p_chk.lineTo(right_icon_x + 4.2, center_y - 2.8)
+            painter.drawPath(p_chk)
+            right_margin = 56.0
+
+        # 5. Center Text
+        text_x = start_x + (4 * dot_step) + bar_w + 14.0
+        text_w = card_rect.right() - right_margin - text_x
+
+        font = get_body_font(10, demi_bold=True)
+        painter.setFont(font)
         fm = QFontMetrics(font)
-        elided = fm.elidedText(self.display_text, Qt.TextElideMode.ElideLeft, int(text_w))
-        painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, elided)
+
+        if self.state == "greeting":
+            prefix = "VoiceTyping готов • "
+            painter.setPen(QColor("#E4E4EC"))
+            p_w = fm.horizontalAdvance(prefix)
+            painter.drawText(QRectF(text_x, card_rect.top(), p_w, self.card_h), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, prefix)
+
+            # Draw hotkey badge
+            badge_x = text_x + p_w + 2.0
+            badge_text = self.hotkey_str
+            b_font = get_mono_font(9, bold=True)
+            b_fm = QFontMetrics(b_font)
+            bw = b_fm.horizontalAdvance(badge_text) + 12.0
+            bh = 19.0
+            badge_rect = QRectF(badge_x, center_y - (bh / 2.0), bw, bh)
+
+            painter.setPen(QPen(QColor(255, 255, 255, 28), 1.0))
+            painter.setBrush(QBrush(QColor(255, 255, 255, 14)))
+            painter.drawRoundedRect(badge_rect, 4.0, 4.0)
+
+            painter.setFont(b_font)
+            painter.setPen(QColor("#C8C8D4"))
+            painter.drawText(badge_rect, Qt.AlignmentFlag.AlignCenter, badge_text)
+
+        else:
+            painter.setPen(QColor("#E4E4EC"))
+            elided = fm.elidedText(self.display_text, Qt.TextElideMode.ElideRight, int(text_w))
+            text_rect = QRectF(text_x, card_rect.top(), text_w, self.card_h)
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, elided)

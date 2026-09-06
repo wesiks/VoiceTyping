@@ -199,6 +199,8 @@ def on_settings_saved(new_settings: dict):
     current_target_key = parse_target_key(app_settings.get("hotkey", "f8"))
     config.GROQ_API_KEY = app_settings.get("groq_api_key", "").strip()
     on_theme_changed(app_settings.get("theme", "claude"))
+    if hud:
+        hud.set_hotkey(app_settings.get("hotkey", "f8"))
     if tray:
         tray.setToolTip(f"VoiceTyping [{app_settings.get('hotkey', 'f8').upper()}]")
 
@@ -244,7 +246,7 @@ def main():
     app.setFont(get_body_font(10))
 
     bridge = AudioSignalBridge()
-    hud = ModernHUD(theme_id=app_settings.get("theme", "claude"))
+    hud = ModernHUD(theme_id=app_settings.get("theme", "claude"), hotkey=app_settings.get("hotkey", "f8"))
 
     bridge.sig_recording_started.connect(hud.show_recording)
     bridge.sig_live_text.connect(hud.update_live_text)
@@ -349,7 +351,7 @@ def main():
     tray.messageClicked.connect(_on_tray_message_clicked)
 
     current_hk = app_settings.get("hotkey", "f8").upper()
-    hud.show_greeting(f"VoiceTyping готов • Клавиша {current_hk}")
+    hud.show_greeting(current_hk)
     tray.showMessage(
         "VoiceTyping готов к работе",
         f"Зажмите клавишу {current_hk} в любой программе для ввода текста.",

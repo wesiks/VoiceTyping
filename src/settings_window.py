@@ -637,7 +637,7 @@ class SettingsWindow(QDialog):
                     "https://api.groq.com/openai/v1/models",
                     headers={
                         "Authorization": f"Bearer {key}",
-                        "User-Agent": "VoiceTyping/1.2.0"
+                        "User-Agent": "VoiceTyping/1.3.0"
                     },
                     timeout=3.5
                 )
