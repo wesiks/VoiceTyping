@@ -69,6 +69,7 @@ class ModernHUD(QWidget):
         self.pos_anim = QPropertyAnimation(self, b"pos")
         self.pos_anim.setDuration(190)
         self.pos_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.pos_anim.finished.connect(self._on_anim_finished)
 
     def set_theme(self, theme_id: str):
         """Switches visual theme in real-time."""
@@ -156,19 +157,15 @@ class ModernHUD(QWidget):
         self.hide_timer.start(2600)
 
     def hide_hud(self):
+        self.hide_timer.stop()
         self.state = "idle"
         self.pos_anim.stop()
         self.pos_anim.setStartValue(self.pos())
         self.pos_anim.setEndValue(QPoint(self.pos_x, self.hidden_y))
         self.pos_anim.setEasingCurve(QEasingCurve.Type.InCubic)
-        self.pos_anim.finished.connect(self._on_slide_down_finished)
         self.pos_anim.start()
 
-    def _on_slide_down_finished(self):
-        try:
-            self.pos_anim.finished.disconnect(self._on_slide_down_finished)
-        except Exception:
-            pass
+    def _on_anim_finished(self):
         if self.state == "idle":
             self.hide()
 

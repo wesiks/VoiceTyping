@@ -1,221 +1,335 @@
+import os
+import sys
 import math
-import random
+import shutil
 import threading
 import requests
 import webbrowser
+import sounddevice as sd
+from pathlib import Path
 from PyQt6.QtWidgets import (
-    QDialog, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit,
-    QPushButton, QComboBox, QFrame, QButtonGroup, QGraphicsDropShadowEffect,
-    QProgressBar
+    QDialog, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
+    QPushButton, QComboBox, QCheckBox, QFrame, QStackedWidget,
+    QProgressBar, QApplication
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, pyqtProperty, QPoint, QRectF, QTimer
-from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QFont, QLinearGradient, QRadialGradient
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPoint, QRectF
+from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QFont, QFontMetrics, QPainterPath
 
-from app_settings import load_settings, save_settings, set_windows_autostart
-from themes import THEMES, get_theme
-from font_loader import (
-    get_title_font, get_subtitle_font, get_body_font, get_mono_font,
-    get_font_families, init_custom_fonts
-)
+from app_settings import load_settings, save_settings, set_windows_autostart, get_app_data_dir
 from updater import APP_VERSION, check_github_update, open_release_page
+from font_loader import get_title_font, get_subtitle_font, get_body_font, get_mono_font
 
-class ModernToggle(QWidget):
-    """Custom smooth iOS/macOS-style toggle switch."""
-    toggled = pyqtSignal(bool)
+def get_audio_input_devices():
+    """Returns list of (device_index, device_name) for available recording devices."""
+    inputs = []
+    try:
+        devices = sd.query_devices()
+        for idx, dev in enumerate(devices):
+            if dev.get("max_input_channels", 0) > 0:
+                name = dev.get("name", f"Микрофон {idx}")
+                inputs.append((idx, name))
+    except Exception:
+        pass
+    return inputs
 
-    def __init__(self, checked=False, accent_color="#E06A38", parent=None):
-        super().__init__(parent)
-        self.setFixedSize(40, 22)
+def get_cache_size_mb() -> float:
+    """Calculates cache and temporary data size in MB."""
+    app_dir = get_app_data_dir()
+    total = 0
+    try:
+        for p in app_dir.rglob("*"):
+            if p.is_file():
+                total += p.stat().st_size
+    except Exception:
+        pass
+    return round(total / (1024 * 1024), 1)
+
+def clear_cache_dir() -> bool:
+    """Clears temporary files without deleting settings.json."""
+    app_dir = get_app_data_dir()
+    try:
+        for p in app_dir.iterdir():
+            if p.name != "settings.json":
+                if p.is_dir():
+                    shutil.rmtree(p, ignore_errors=True)
+                else:
+                    p.unlink(missing_ok=True)
+        return True
+    except Exception:
+        return False
+
+class ModernCheckBox(QCheckBox):
+    """Custom pixel-perfect dark checkbox with vector checkmark."""
+    def __init__(self, text: str, default_checked: bool = False, parent=None):
+        super().__init__(text, parent)
+        self.setChecked(default_checked)
+        self.setFont(get_body_font(9.5))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._checked = checked
-        self._accent = QColor(accent_color)
-        self._thumb_pos = 20.0 if checked else 2.0
-        
-        self._anim = QPropertyAnimation(self, b"thumb_pos")
-        self._anim.setDuration(140)
-        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-    def get_thumb_pos(self):
-        return self._thumb_pos
-
-    def set_thumb_pos(self, pos):
-        self._thumb_pos = pos
-        self.update()
-
-    thumb_pos = pyqtProperty(float, get_thumb_pos, set_thumb_pos)
-
-    def isChecked(self):
-        return self._checked
-
-    def setChecked(self, checked):
-        if self._checked != checked:
-            self._checked = checked
-            self._anim.stop()
-            self._anim.setStartValue(self._thumb_pos)
-            self._anim.setEndValue(20.0 if checked else 2.0)
-            self._anim.start()
-            self.toggled.emit(self._checked)
-
-    def set_accent(self, color_hex):
-        self._accent = QColor(color_hex)
-        self.update()
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.setChecked(not self._checked)
+        self.setFixedHeight(26)
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        track_color = self._accent if self._checked else QColor(44, 44, 54)
+
+        rect = self.rect()
+        box_size = 18.0
+        box_y = (rect.height() - box_size) / 2.0
+        box_rect = QRectF(2.0, box_y, box_size, box_size)
+
+        if self.isChecked():
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(QColor(0, 120, 212)))
+            painter.drawRoundedRect(box_rect, 4.0, 4.0)
+
+            # Draw white checkmark
+            painter.setPen(QPen(QColor(255, 255, 255), 1.8, cap=Qt.PenCapStyle.RoundCap, join=Qt.PenJoinStyle.RoundJoin))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            p = QPainterPath()
+            p.moveTo(box_rect.left() + 4.2, box_rect.top() + 9.2)
+            p.lineTo(box_rect.left() + 7.4, box_rect.top() + 12.6)
+            p.lineTo(box_rect.left() + 13.6, box_rect.top() + 5.4)
+            painter.drawPath(p)
+        else:
+            border_c = QColor(0, 120, 212) if self.underMouse() else QColor(58, 58, 68)
+            painter.setPen(QPen(border_c, 1.2))
+            painter.setBrush(QBrush(QColor(26, 26, 30)))
+            painter.drawRoundedRect(box_rect, 4.0, 4.0)
+
+        # Text
+        painter.setFont(self.font())
+        painter.setPen(QColor("#E6E6EE"))
+        text_rect = QRectF(28.0, 0, rect.width() - 30.0, rect.height())
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self.text())
+
+class AppLogoWidget(QWidget):
+    """Vector app squircle badge with white mic icon."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(56, 56)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        rect = QRectF(self.rect()).adjusted(1, 1, -1, -1)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(track_color))
-        painter.drawRoundedRect(0, 0, 40, 22, 11, 11)
-        
-        painter.setBrush(QBrush(QColor(255, 255, 255)))
-        painter.drawEllipse(int(self._thumb_pos), 2, 18, 18)
+        painter.setBrush(QBrush(QColor(10, 56, 113)))
+        painter.drawRoundedRect(rect, 15.0, 15.0)
 
+        # White mic vector
+        cx = rect.center().x()
+        cy = rect.center().y()
+        painter.setPen(QPen(QColor(255, 255, 255), 2.0, cap=Qt.PenCapStyle.RoundCap, join=Qt.PenJoinStyle.RoundJoin))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
 
-class ThemeCard(QPushButton):
-    """Spacious theme selector pill with circular swatch."""
-    def __init__(self, theme_id, theme_info, is_active=False, parent=None):
+        mic_w = 8.0
+        mic_h = 13.0
+        painter.drawRoundedRect(QRectF(cx - mic_w/2, cy - 10.0, mic_w, mic_h), mic_w/2, mic_w/2)
+
+        p_bracket = QPainterPath()
+        p_bracket.arcMoveTo(QRectF(cx - 7.5, cy - 6.0, 15.0, 13.0), 180)
+        p_bracket.arcTo(QRectF(cx - 7.5, cy - 6.0, 15.0, 13.0), 180, -180)
+        painter.drawPath(p_bracket)
+
+        painter.drawLine(QPoint(int(cx), int(cy + 7.0)), QPoint(int(cx), int(cy + 11.5)))
+        painter.drawLine(QPoint(int(cx - 5.0), int(cy + 11.5)), QPoint(int(cx + 5.0), int(cy + 11.5)))
+
+class VectorEyeButton(QPushButton):
+    """Clean vector eye icon button for password visibility toggle."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(38, 38)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.is_open = False
+
+    def set_open(self, open_state: bool):
+        self.is_open = open_state
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        rect = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        bg = QColor(32, 32, 38) if self.underMouse() else QColor(26, 26, 30)
+        painter.setPen(QPen(QColor(44, 44, 52), 1.0))
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(rect, 8.0, 8.0)
+
+        cx = rect.center().x()
+        cy = rect.center().y()
+        c = QColor("#FFFFFF") if self.underMouse() else QColor("#8E8E98")
+
+        painter.setPen(QPen(c, 1.4, cap=Qt.PenCapStyle.RoundCap, join=Qt.PenJoinStyle.RoundJoin))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        # Eye outline
+        p = QPainterPath()
+        p.moveTo(cx - 8.0, cy)
+        p.quadTo(cx, cy - 5.5, cx + 8.0, cy)
+        p.quadTo(cx, cy + 5.5, cx - 8.0, cy)
+        painter.drawPath(p)
+
+        # Pupil
+        painter.setBrush(QBrush(c))
+        painter.drawEllipse(QRectF(cx - 2.2, cy - 2.2, 4.4, 4.4))
+
+        # Strikethrough if not open
+        if not self.is_open:
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawLine(QPoint(int(cx - 6.5), int(cy + 5.5)), QPoint(int(cx + 6.5), int(cy - 5.5)))
+
+class MicIconWidget(QWidget):
+    """Small vector microphone icon for the audio meter row."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(18, 18)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        cx = self.width() / 2.0
+        cy = self.height() / 2.0
+        painter.setPen(QPen(QColor("#8E8E98"), 1.3, cap=Qt.PenCapStyle.RoundCap, join=Qt.PenJoinStyle.RoundJoin))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        mic_w = 4.4
+        mic_h = 7.0
+        painter.drawRoundedRect(QRectF(cx - mic_w/2, cy - 6.0, mic_w, mic_h), mic_w/2, mic_w/2)
+
+        p = QPainterPath()
+        p.arcMoveTo(QRectF(cx - 4.0, cy - 3.5, 8.0, 7.0), 180)
+        p.arcTo(QRectF(cx - 4.0, cy - 3.5, 8.0, 7.0), 180, -180)
+        painter.drawPath(p)
+
+        painter.drawLine(QPoint(int(cx), int(cy + 3.5)), QPoint(int(cx), int(cy + 6.0)))
+        painter.drawLine(QPoint(int(cx - 2.5), int(cy + 6.0)), QPoint(int(cx + 2.5), int(cy + 6.0)))
+
+class SidebarNavButton(QPushButton):
+    """Custom sidebar button with clean vector icon and pill selection."""
+    def __init__(self, icon_type: str, text: str, parent=None):
+        super().__init__(parent)
+        self.icon_type = icon_type
+        self.button_text = text
+        self.is_active = False
+        self.setFixedHeight(42)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFont(get_body_font(9.5, demi_bold=True))
+
+    def set_active(self, active: bool):
+        self.is_active = active
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        rect = self.rect()
+        btn_rect = QRectF(4, 2, rect.width() - 8, rect.height() - 4)
+
+        if self.is_active:
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(QColor(10, 56, 113)))
+            painter.drawRoundedRect(btn_rect, 8.0, 8.0)
+            text_color = QColor("#FFFFFF")
+            icon_color = QColor("#FFFFFF")
+        else:
+            if self.underMouse():
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(QBrush(QColor(255, 255, 255, 12)))
+                painter.drawRoundedRect(btn_rect, 8.0, 8.0)
+            text_color = QColor("#A4A4B0")
+            icon_color = QColor("#8C8C9A")
+
+        # Draw Icon
+        center_y = rect.height() / 2.0
+        icon_x = 22.0
+        painter.setPen(QPen(icon_color, 1.4, cap=Qt.PenCapStyle.RoundCap, join=Qt.PenJoinStyle.RoundJoin))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        if self.icon_type == "mic":
+            mic_w = 4.8
+            mic_h = 7.6
+            painter.drawRoundedRect(QRectF(icon_x - mic_w/2, center_y - 6.2, mic_w, mic_h), mic_w/2, mic_w/2)
+            p_bracket = QPainterPath()
+            p_bracket.arcMoveTo(QRectF(icon_x - 4.4, center_y - 3.8, 8.8, 7.6), 180)
+            p_bracket.arcTo(QRectF(icon_x - 4.4, center_y - 3.8, 8.8, 7.6), 180, -180)
+            painter.drawPath(p_bracket)
+            painter.drawLine(QPoint(int(icon_x), int(center_y + 3.8)), QPoint(int(icon_x), int(center_y + 6.2)))
+            painter.drawLine(QPoint(int(icon_x - 2.8), int(center_y + 6.2)), QPoint(int(icon_x + 2.8), int(center_y + 6.2)))
+
+        elif self.icon_type == "keyboard":
+            kw = 15.0
+            kh = 10.0
+            painter.drawRoundedRect(QRectF(icon_x - kw/2, center_y - kh/2, kw, kh), 2.0, 2.0)
+            for kx in [-4, 0, 4]:
+                painter.drawPoint(QPoint(int(icon_x + kx), int(center_y - 2)))
+            for kx in [-3, 1]:
+                painter.drawPoint(QPoint(int(icon_x + kx), int(center_y + 2)))
+
+        elif self.icon_type == "sliders":
+            sw = 14.0
+            painter.drawLine(QPoint(int(icon_x - sw/2), int(center_y - 3.5)), QPoint(int(icon_x + sw/2), int(center_y - 3.5)))
+            painter.drawLine(QPoint(int(icon_x - sw/2), int(center_y + 3.5)), QPoint(int(icon_x + sw/2), int(center_y + 3.5)))
+            painter.drawEllipse(QRectF(icon_x - 3.5, center_y - 5.5, 4.0, 4.0))
+            painter.drawEllipse(QRectF(icon_x + 0.5, center_y + 1.5, 4.0, 4.0))
+
+        elif self.icon_type == "info":
+            ir = 6.8
+            painter.drawEllipse(QRectF(icon_x - ir, center_y - ir, ir*2, ir*2))
+            painter.drawPoint(QPoint(int(icon_x), int(center_y - 2.8)))
+            painter.drawLine(QPoint(int(icon_x), int(center_y - 1.0)), QPoint(int(icon_x), int(center_y + 3.2)))
+
+        # Draw Label
+        painter.setFont(self.font())
+        painter.setPen(text_color)
+        text_rect = QRectF(42.0, 0, rect.width() - 48.0, rect.height())
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self.button_text)
+
+class CustomThemeCard(QPushButton):
+    """Widget theme card matching Mockup 2."""
+    def __init__(self, theme_id: str, title: str, dot_color: str, is_active=False, parent=None):
         super().__init__(parent)
         self.theme_id = theme_id
-        self.info = theme_info
-        self.setCheckable(True)
-        self.setChecked(is_active)
-        self.setFixedHeight(38)
+        self.card_title = title
+        self.dot_color = QColor(dot_color)
+        self.is_active = is_active
+        self.setFixedHeight(76)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFont(get_subtitle_font(11, demi_bold=True))
-        self._update_style()
 
-    def set_active(self, active):
-        self.setChecked(active)
-        self._update_style()
-
-    def _update_style(self):
-        accent = self.info["accent"]
-        bg = "rgba(38, 38, 52, 0.90)" if self.isChecked() else "rgba(24, 24, 32, 0.65)"
-        border = f"1.5px solid {accent}" if self.isChecked() else "1px solid rgba(255, 255, 255, 0.12)"
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {bg};
-                color: #FAF8F5;
-                border: {border};
-                border-radius: 9px;
-                padding-left: 32px;
-                padding-right: 14px;
-                text-align: left;
-            }}
-            QPushButton:hover {{
-                background-color: rgba(48, 48, 64, 0.90);
-                border-color: {accent};
-            }}
-        """)
-
-    def paintEvent(self, event):
-        super().paintEvent(event)
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(QColor(self.info["accent"])))
-        painter.drawEllipse(13, 14, 10, 10)
-
-
-class AtmosphericCanvas(QFrame):
-    """Background container with floating animated snow particles and ambient breathing glow."""
-    def __init__(self, theme, parent=None):
-        super().__init__(parent)
-        self.theme = theme
-        self.time_counter = 0.0
-        self.particles = []
-        for _ in range(50):
-            depth = random.uniform(0.1, 1.0)
-            self.particles.append({
-                "x": random.uniform(0, 540),
-                "y": random.uniform(0, 680),
-                "radius": 0.9 + (depth * 1.8),
-                "speed_y": 0.4 + (depth * 0.9),
-                "sway_speed": random.uniform(0.015, 0.035),
-                "sway_phase": random.uniform(0, math.pi * 2),
-                "alpha": int(35 + (depth * 135)),
-                "depth": depth
-            })
-
-        self.anim_timer = QTimer(self)
-        self.anim_timer.setInterval(16)
-        self.anim_timer.timeout.connect(self._update_particles)
-        self.anim_timer.start()
-
-    def set_theme(self, theme):
-        self.theme = theme
-        self.update()
-
-    def _update_particles(self):
-        self.time_counter += 0.02
-        w = max(100, self.width())
-        h = max(100, self.height())
-
-        for p in self.particles:
-            p["y"] += p["speed_y"]
-            p["sway_phase"] += p["sway_speed"]
-            p["x"] += math.sin(p["sway_phase"]) * (0.25 + 0.3 * p["depth"])
-
-            if p["y"] > h + 5:
-                p["y"] = -5
-                p["x"] = random.uniform(0, w)
-            if p["x"] < -5:
-                p["x"] = w + 5
-            elif p["x"] > w + 5:
-                p["x"] = -5
-
+    def set_active(self, active: bool):
+        self.is_active = active
         self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        rect = QRectF(0, 0, self.width(), self.height())
-        radius = 16.0
 
-        painter.setPen(QPen(QColor(255, 255, 255, 22), 1.2))
-        painter.setBrush(QBrush(QColor(14, 14, 18, 252)))
-        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), radius, radius)
+        rect = QRectF(self.rect()).adjusted(1, 1, -1, -1)
+        bg = QColor(24, 24, 28)
+        if self.is_active:
+            border = QPen(QColor(10, 88, 180), 1.8)
+        else:
+            border = QPen(QColor(255, 255, 255, 18), 1.0)
 
-        accent_rgb = QColor(self.theme["accent"])
-        center_x = self.width() * 0.5
-        center_y = self.height() * 0.4
-        
-        breath = 0.06 + 0.03 * math.sin(self.time_counter * 0.9)
-        glow_alpha = int(breath * 255)
-        
-        rad_grad = QRadialGradient(center_x, center_y, self.width() * 0.55)
-        rad_grad.setColorAt(0.0, QColor(accent_rgb.red(), accent_rgb.green(), accent_rgb.blue(), glow_alpha))
-        rad_grad.setColorAt(0.65, QColor(accent_rgb.red(), accent_rgb.green(), accent_rgb.blue(), int(glow_alpha * 0.25)))
-        rad_grad.setColorAt(1.0, QColor(0, 0, 0, 0))
-        
+        painter.setPen(border)
+        painter.setBrush(QBrush(bg))
+        painter.drawRoundedRect(rect, 8.0, 8.0)
+
+        # Dot
+        cx = rect.center().x()
+        cy = rect.top() + 26.0
+        r = 7.5
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(rad_grad))
-        painter.drawRoundedRect(rect.adjusted(1, 1, -1, -1), radius, radius)
+        painter.setBrush(QBrush(self.dot_color))
+        painter.drawEllipse(QRectF(cx - r, cy - r, r*2, r*2))
 
-        for p in self.particles:
-            alpha = p["alpha"]
-            r = p["radius"]
-            if p["depth"] > 0.65:
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(QBrush(QColor(255, 255, 255, int(alpha * 0.25))))
-                painter.drawEllipse(QPoint(int(p["x"]), int(p["y"])), int(r * 2.0), int(r * 2.0))
-
-            painter.setBrush(QBrush(QColor(255, 255, 255, alpha)))
-            painter.drawEllipse(QPoint(int(p["x"]), int(p["y"])), int(r), int(r))
-
-        top_grad = QLinearGradient(0, 1, 0, 16)
-        top_grad.setColorAt(0.0, QColor(255, 255, 255, 45))
-        top_grad.setColorAt(1.0, QColor(255, 255, 255, 0))
-        painter.setBrush(QBrush(top_grad))
-        painter.drawRoundedRect(rect.adjusted(2, 1, -2, -self.height() + 16), radius - 1, radius - 1)
-
+        # Title
+        painter.setFont(get_body_font(10, demi_bold=True))
+        painter.setPen(QColor("#FFFFFF" if self.is_active else "#C4C4CE"))
+        text_rect = QRectF(rect.left(), rect.top() + 42.0, rect.width(), 24.0)
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, self.card_title)
 
 class SettingsWindow(QDialog):
     theme_changed = pyqtSignal(str)
@@ -223,501 +337,874 @@ class SettingsWindow(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        init_custom_fonts()
         
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Dialog)
+        self.setWindowFlags(
+            Qt.WindowType.FramelessWindowHint |
+            Qt.WindowType.Window
+        )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setFixedSize(560, 800)
-        
-        self._drag_pos = None
+        self.setFixedSize(650, 680)
+
         self.settings = load_settings()
-        self.theme = get_theme(self.settings.get("theme", "claude"))
-        
+        self._drag_pos = None
+        self._is_listening_hotkey = False
+
         self._init_ui()
+        self._load_values()
 
     def _init_ui(self):
-        master_layout = QVBoxLayout(self)
-        master_layout.setContentsMargins(16, 16, 16, 16)
-        
-        fams = get_font_families()
-        title_fam = fams["title"]
-        body_fam = fams["body"]
-        mono_fam = fams["mono"]
-        
-        self.card = AtmosphericCanvas(self.theme)
-        self.card.setStyleSheet(f"""
-            QLabel {{
-                color: #FAF8F5;
-                font-family: '{body_fam}', sans-serif;
-            }}
-            QFrame.subcard {{
-                background-color: rgba(22, 22, 30, 0.75);
-                border: 1px solid rgba(255, 255, 255, 0.09);
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(12, 12, 12, 12)
+
+        self.container = QFrame(self)
+        self.container.setObjectName("container")
+        self.container.setStyleSheet("""
+            QFrame#container {
+                background-color: #121214;
+                border: 1px solid rgba(255, 255, 255, 0.10);
                 border-radius: 12px;
-                padding: 14px;
-            }}
-            QLineEdit {{
-                background-color: rgba(28, 28, 38, 0.88);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-                border-radius: 8px;
-                color: #FAF8F5;
-                padding: 8px 12px;
-                font-size: 13px;
-                font-family: '{mono_fam}', monospace;
-            }}
-            QLineEdit:focus {{
-                border: 1.5px solid {self.theme['accent']};
-            }}
-            QComboBox {{
-                background-color: rgba(28, 28, 38, 0.95);
-                border: 1px solid rgba(255, 255, 255, 0.16);
-                border-radius: 8px;
-                color: #FAF8F5;
-                padding: 4px 10px;
-                font-size: 12px;
-                font-family: '{mono_fam}', monospace;
-                font-weight: 600;
-            }}
-            QComboBox::drop-down {{
-                border: none;
-                width: 20px;
-            }}
-            QComboBox QAbstractItemView {{
-                background-color: #1A1A22;
-                color: #FAF8F5;
-                selection-background-color: #2D2D3A;
-                border: 1px solid #303040;
-                font-family: '{mono_fam}', monospace;
-                font-size: 12px;
-            }}
-            QPushButton[class="primary"], QPushButton.primary {{
-                background-color: {self.theme['accent']};
-                color: #FFFFFF;
-                border: none;
-                border-radius: 9px;
-                padding: 10px 22px;
-                font-size: 13px;
-                font-weight: 600;
-                font-family: '{body_fam}', sans-serif;
-            }}
-            QPushButton[class="primary"]:hover, QPushButton.primary:hover {{
-                opacity: 0.9;
-            }}
-            QPushButton[class="secondary"], QPushButton.secondary {{
-                background-color: rgba(38, 38, 52, 0.92);
-                color: #FAF8F5;
-                border: 1px solid rgba(255, 255, 255, 0.16);
-                border-radius: 8px;
-                padding: 5px 14px;
-                font-size: 11px;
-                font-weight: 600;
-                font-family: '{body_fam}', sans-serif;
-            }}
-            QPushButton[class="secondary"]:hover, QPushButton.secondary:hover {{
-                background-color: rgba(52, 52, 70, 0.98);
-                border-color: rgba(255, 255, 255, 0.30);
-            }}
+            }
         """)
+        root_layout.addWidget(self.container)
 
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(28)
-        shadow.setColor(QColor(0, 0, 0, 130))
-        shadow.setOffset(0, 10)
-        self.card.setGraphicsEffect(shadow)
+        container_layout = QVBoxLayout(self.container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)
 
-        card_layout = QVBoxLayout(self.card)
-        card_layout.setContentsMargins(24, 18, 24, 24)
-        card_layout.setSpacing(14)
+        # 1. Header Bar
+        header = QFrame(self.container)
+        header.setFixedHeight(48)
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(20, 0, 16, 0)
 
-        title_bar = QHBoxLayout()
-        title_bar.setContentsMargins(0, 0, 0, 4)
-        
-        lbl_title = QLabel("Параметры VoiceTyping")
-        lbl_title.setFont(get_title_font(13, bold=True))
-        title_bar.addWidget(lbl_title)
-        
-        title_bar.addStretch()
+        title_lbl = QLabel("VoiceTyping", header)
+        title_lbl.setFont(get_title_font(12, bold=True))
+        title_lbl.setStyleSheet("color: #FFFFFF;")
 
-        btn_close = QPushButton("✕")
+        ver_lbl = QLabel(f"v{APP_VERSION}", header)
+        ver_lbl.setFont(get_body_font(10))
+        ver_lbl.setStyleSheet("color: #70707B; margin-left: 4px;")
+
+        header_layout.addWidget(title_lbl)
+        header_layout.addWidget(ver_lbl)
+        header_layout.addStretch()
+
+        btn_close = QPushButton("✕", header)
         btn_close.setFixedSize(28, 28)
         btn_close.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_close.setStyleSheet("""
             QPushButton {
-                background-color: transparent;
-                color: #8C8C9A;
+                background: transparent;
+                color: #8E8E98;
                 border: none;
-                border-radius: 6px;
-                font-size: 13px;
+                font-size: 14px;
+                border-radius: 4px;
             }
             QPushButton:hover {
-                background-color: rgba(255, 255, 255, 0.10);
+                background: rgba(255, 255, 255, 0.08);
                 color: #FFFFFF;
             }
         """)
         btn_close.clicked.connect(self.close)
-        title_bar.addWidget(btn_close)
-        card_layout.addLayout(title_bar)
+        header_layout.addWidget(btn_close)
 
-        api_card = QFrame()
-        api_card.setProperty("class", "subcard")
-        api_lay = QVBoxLayout(api_card)
-        api_lay.setSpacing(8)
+        container_layout.addWidget(header)
 
-        lbl_api = QLabel("Ключ Groq API")
-        lbl_api.setFont(get_subtitle_font(11, demi_bold=True))
-        api_lay.addWidget(lbl_api)
+        # Header separator
+        sep_top = QFrame(self.container)
+        sep_top.setFixedHeight(1)
+        sep_top.setStyleSheet("background-color: rgba(255, 255, 255, 0.07);")
+        container_layout.addWidget(sep_top)
 
-        h_api = QHBoxLayout()
-        self.api_input = QLineEdit()
-        self.api_input.setPlaceholderText("gsk_...")
-        self.api_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.api_input.setText(self.settings.get("groq_api_key", ""))
-        self.api_input.setFont(get_mono_font(11))
-        h_api.addWidget(self.api_input)
+        # 2. Main Body: Sidebar + StackedWidget
+        body = QFrame(self.container)
+        body_layout = QHBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(0)
 
-        self.btn_test = QPushButton("Проверить")
-        self.btn_test.setProperty("class", "secondary")
-        self.btn_test.setFont(get_body_font(10, demi_bold=True))
-        self.btn_test.setFixedHeight(32)
-        self.btn_test.setFixedWidth(105)
-        self.btn_test.clicked.connect(self._check_api_key)
-        h_api.addWidget(self.btn_test)
-        api_lay.addLayout(h_api)
+        # Sidebar with width 196px for comfortable text display
+        sidebar = QFrame(body)
+        sidebar.setFixedWidth(196)
+        sidebar.setStyleSheet("background-color: transparent;")
+        sb_layout = QVBoxLayout(sidebar)
+        sb_layout.setContentsMargins(12, 16, 12, 16)
+        sb_layout.setSpacing(6)
 
-        self.api_progress = QProgressBar()
-        self.api_progress.setFixedHeight(4)
-        self.api_progress.setTextVisible(False)
-        self.api_progress.setRange(0, 100)
-        self.api_progress.setValue(0)
-        self.api_progress.setVisible(False)
-        self._update_progress_style(self.theme["accent"])
-        api_lay.addWidget(self.api_progress)
+        self.btn_tab_rec = SidebarNavButton("mic", "Запись", sidebar)
+        self.btn_tab_keys = SidebarNavButton("keyboard", "Горячие клавиши", sidebar)
+        self.btn_tab_gen = SidebarNavButton("sliders", "Общее", sidebar)
+        self.btn_tab_about = SidebarNavButton("info", "О приложении", sidebar)
 
-        h_link = QHBoxLayout()
-        self.lbl_link = QLabel(f'<a style="color: {self.theme["accent"]}; text-decoration: underline;" href="https://console.groq.com/keys">Получить бесплатный ключ на console.groq.com/keys</a>')
-        self.lbl_link.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.lbl_link.setFont(get_body_font(9, demi_bold=True))
-        self.lbl_link.linkActivated.connect(lambda url: webbrowser.open("https://console.groq.com/keys"))
-        h_link.addWidget(self.lbl_link)
-        h_link.addStretch()
-        api_lay.addLayout(h_link)
+        self.nav_buttons = [self.btn_tab_rec, self.btn_tab_keys, self.btn_tab_gen, self.btn_tab_about]
+        for idx, btn in enumerate(self.nav_buttons):
+            btn.clicked.connect(lambda checked=False, i=idx: self._switch_tab(i))
+            sb_layout.addWidget(btn)
 
-        lbl_vpn_note = QLabel("Примечание: для регистрации и создания ключа на сайте Groq требуется VPN")
-        lbl_vpn_note.setFont(get_body_font(8))
-        lbl_vpn_note.setStyleSheet("color: #8C8C9A; margin-top: -3px;")
-        api_lay.addWidget(lbl_vpn_note)
+        sb_layout.addStretch()
+        body_layout.addWidget(sidebar)
 
-        card_layout.addWidget(api_card)
+        # Sidebar separator
+        sep_mid = QFrame(body)
+        sep_mid.setFixedWidth(1)
+        sep_mid.setStyleSheet("background-color: rgba(255, 255, 255, 0.07);")
+        body_layout.addWidget(sep_mid)
 
-        theme_card = QFrame()
-        theme_card.setProperty("class", "subcard")
-        theme_lay = QVBoxLayout(theme_card)
-        theme_lay.setSpacing(10)
+        # Pages container
+        self.stack = QStackedWidget(body)
+        self.page_recording = self._create_recording_page()
+        self.page_hotkeys = self._create_hotkeys_page()
+        self.page_general = self._create_general_page()
+        self.page_about = self._create_about_page()
 
-        lbl_theme = QLabel("Цветовая тема")
-        lbl_theme.setFont(get_subtitle_font(11, demi_bold=True))
-        theme_lay.addWidget(lbl_theme)
+        self.stack.addWidget(self.page_recording)
+        self.stack.addWidget(self.page_hotkeys)
+        self.stack.addWidget(self.page_general)
+        self.stack.addWidget(self.page_about)
 
-        grid_themes = QGridLayout()
-        grid_themes.setSpacing(10)
+        body_layout.addWidget(self.stack)
+        container_layout.addWidget(body)
 
-        current_theme_id = self.settings.get("theme", "claude")
-        self.theme_buttons = []
+        # Bottom separator
+        sep_bot = QFrame(self.container)
+        sep_bot.setFixedHeight(1)
+        sep_bot.setStyleSheet("background-color: rgba(255, 255, 255, 0.07);")
+        container_layout.addWidget(sep_bot)
 
-        theme_items = list(THEMES.items())
-        positions = [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2)]
+        # 3. Footer Bar
+        footer = QFrame(self.container)
+        footer.setFixedHeight(56)
+        footer_layout = QHBoxLayout(footer)
+        footer_layout.setContentsMargins(20, 0, 20, 0)
 
-        for idx, (tid, tinfo) in enumerate(theme_items):
-            r, c = positions[idx]
-            btn = ThemeCard(tid, tinfo, is_active=(tid == current_theme_id))
-            btn.setText(tinfo["name"])
-            btn.clicked.connect(lambda checked, t=tid: self._on_theme_selected(t))
-            self.theme_buttons.append(btn)
-            grid_themes.addWidget(btn, r, c)
+        self.lbl_status = QLabel("✓  Установлена последняя версия", footer)
+        self.lbl_status.setFont(get_body_font(9.5))
+        self.lbl_status.setStyleSheet("color: #34D399;")
 
-        theme_lay.addLayout(grid_themes)
-        card_layout.addWidget(theme_card)
-
-        ctrl_card = QFrame()
-        ctrl_card.setProperty("class", "subcard")
-        ctrl_lay = QVBoxLayout(ctrl_card)
-        ctrl_lay.setSpacing(12)
-
-        h_hotkey = QHBoxLayout()
-        lbl_hotkey = QLabel("Клавиша Push-to-Talk:")
-        lbl_hotkey.setFont(get_body_font(11))
-        h_hotkey.addWidget(lbl_hotkey)
-        h_hotkey.addStretch()
-        
-        self.combo_hotkey = QComboBox()
-        self.combo_hotkey.addItems(["F8", "F4", "F7", "Caps_Lock", "Scroll_Lock", "Pause", "Insert"])
-        self.combo_hotkey.setFont(get_mono_font(11, bold=True))
-        self.combo_hotkey.setFixedWidth(125)
-        self.combo_hotkey.setFixedHeight(28)
-        cur_hotkey = self.settings.get("hotkey", "f8").upper()
-        idx = self.combo_hotkey.findText(cur_hotkey)
-        if idx >= 0:
-            self.combo_hotkey.setCurrentIndex(idx)
-        h_hotkey.addWidget(self.combo_hotkey)
-        ctrl_lay.addLayout(h_hotkey)
-
-        h_sound = QHBoxLayout()
-        lbl_sound = QLabel("Мягкий звуковой сигнал при старте/остановке")
-        lbl_sound.setFont(get_body_font(11))
-        h_sound.addWidget(lbl_sound)
-        h_sound.addStretch()
-        self.toggle_sound = ModernToggle(
-            checked=self.settings.get("sound_enabled", True),
-            accent_color=self.theme["accent"]
-        )
-        h_sound.addWidget(self.toggle_sound)
-        ctrl_lay.addLayout(h_sound)
-
-        h_auto = QHBoxLayout()
-        lbl_auto = QLabel("Запускать при включении Windows")
-        lbl_auto.setFont(get_body_font(11))
-        h_auto.addWidget(lbl_auto)
-        h_auto.addStretch()
-        self.toggle_autostart = ModernToggle(
-            checked=self.settings.get("autostart", False),
-            accent_color=self.theme["accent"]
-        )
-        h_auto.addWidget(self.toggle_autostart)
-        ctrl_lay.addLayout(h_auto)
-
-        h_stream = QHBoxLayout()
-        lbl_stream = QLabel("Потоковый предпросмотр речи")
-        lbl_stream.setFont(get_body_font(11))
-        h_stream.addWidget(lbl_stream)
-        h_stream.addStretch()
-        self.toggle_stream = ModernToggle(
-            checked=self.settings.get("stream_preview", True),
-            accent_color=self.theme["accent"]
-        )
-        h_stream.addWidget(self.toggle_stream)
-        ctrl_lay.addLayout(h_stream)
-
-        lbl_stream_hint = QLabel("Локальный вывод слов на лету (Vosk). Отключите для экономии памяти до ~30 МБ.")
-        lbl_stream_hint.setFont(get_body_font(9))
-        lbl_stream_hint.setStyleSheet("color: #8C8C9A; padding-left: 2px; margin-top: -2px; margin-bottom: 6px;")
-        ctrl_lay.addWidget(lbl_stream_hint)
-
-        h_updates = QHBoxLayout()
-        lbl_updates = QLabel("Автоматически проверять обновления")
-        lbl_updates.setFont(get_body_font(11))
-        h_updates.addWidget(lbl_updates)
-        h_updates.addStretch()
-        self.toggle_updates = ModernToggle(
-            checked=self.settings.get("check_updates", True),
-            accent_color=self.theme["accent"]
-        )
-        h_updates.addWidget(self.toggle_updates)
-        ctrl_lay.addLayout(h_updates)
-
-        h_version = QHBoxLayout()
-        self.lbl_version = QLabel(f"Версия VoiceTyping: v{APP_VERSION}")
-        self.lbl_version.setFont(get_mono_font(10))
-        self.lbl_version.setStyleSheet("color: #9E9EA8;")
-        h_version.addWidget(self.lbl_version)
-        h_version.addStretch()
-        self.btn_check_update = QPushButton("Проверить обновления")
-        self.btn_check_update.setProperty("class", "secondary")
-        self.btn_check_update.setFont(get_body_font(10, demi_bold=True))
-        self.btn_check_update.setFixedHeight(28)
-        self.btn_check_update.setFixedWidth(175)
-        self.btn_check_update.clicked.connect(self._on_check_update_clicked)
-        h_version.addWidget(self.btn_check_update)
-        ctrl_lay.addLayout(h_version)
-
-        card_layout.addWidget(ctrl_card)
-
-        self.toast_label = QLabel("")
-        self.toast_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.toast_label.setFont(get_subtitle_font(10, demi_bold=True))
-        self.toast_label.setFixedHeight(22)
-        card_layout.addWidget(self.toast_label)
-
-        h_bottom = QHBoxLayout()
-        h_bottom.addStretch()
-
-        self.btn_save = QPushButton("Сохранить настройки")
-        self.btn_save.setProperty("class", "primary")
-        self.btn_save.setFont(get_body_font(11, demi_bold=True))
-        self.btn_save.setStyleSheet(f"background-color: {self.theme['accent']};")
-        self.btn_save.clicked.connect(self._save)
-        h_bottom.addWidget(self.btn_save)
-
-        card_layout.addLayout(h_bottom)
-        master_layout.addWidget(self.card)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton and event.position().y() < 55:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            event.accept()
-
-    def mouseMoveEvent(self, event):
-        if self._drag_pos and event.buttons() == Qt.MouseButton.LeftButton:
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
-            event.accept()
-
-    def mouseReleaseEvent(self, event):
-        self._drag_pos = None
-
-    def _show_toast(self, message, is_error=False):
-        color = "#F87171" if is_error else "#34D399"
-        self.toast_label.setStyleSheet(f"color: {color};")
-        self.toast_label.setText(message)
-        QTimer.singleShot(4000, lambda: self.toast_label.setText(""))
-
-    def _update_progress_style(self, color_hex):
-        self.api_progress.setStyleSheet(f"""
-            QProgressBar {{
-                background-color: rgba(255, 255, 255, 0.08);
+        self.btn_save = QPushButton("Сохранить", footer)
+        self.btn_save.setFixedSize(130, 32)
+        self.btn_save.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_save.setFont(get_body_font(10, demi_bold=True))
+        self.btn_save.setStyleSheet("""
+            QPushButton {
+                background-color: #FFFFFF;
+                color: #121214;
                 border: none;
-                border-radius: 2px;
-                max-height: 4px;
-            }}
-            QProgressBar::chunk {{
-                background-color: {color_hex};
-                border-radius: 2px;
-            }}
+                border-radius: 16px;
+            }
+            QPushButton:hover {
+                background-color: #E6E6EE;
+            }
+            QPushButton:pressed {
+                background-color: #CCCCCC;
+            }
         """)
+        self.btn_save.clicked.connect(self._save_and_close)
 
-    def _on_theme_selected(self, theme_id):
+        footer_layout.addWidget(self.lbl_status)
+        footer_layout.addStretch()
+        footer_layout.addWidget(self.btn_save)
+
+        container_layout.addWidget(footer)
+
+        self._switch_tab(0)
+
+    # ------------------ TAB PAGES ------------------
+
+    def _create_recording_page(self) -> QWidget:
+        """Tab 1: Запись (Mockup 4)"""
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(28, 22, 28, 20)
+        layout.setSpacing(16)
+
+        # 1. Groq API
+        lbl_api = QLabel("Groq API", w)
+        lbl_api.setFont(get_subtitle_font(10.5, demi_bold=True))
+        lbl_api.setStyleSheet("color: #FFFFFF;")
+        layout.addWidget(lbl_api)
+
+        api_row = QHBoxLayout()
+        api_row.setSpacing(10)
+
+        self.inp_api = QLineEdit(w)
+        self.inp_api.setEchoMode(QLineEdit.EchoMode.Password)
+        self.inp_api.setFixedHeight(38)
+        self.inp_api.setFont(get_mono_font(9.5))
+        self.inp_api.setStyleSheet("""
+            QLineEdit {
+                background-color: #1A1A1E;
+                color: #FFFFFF;
+                border: 1px solid #2C2C34;
+                border-radius: 8px;
+                padding: 0 12px;
+            }
+            QLineEdit:focus {
+                border-color: #0A58B4;
+            }
+        """)
+        api_row.addWidget(self.inp_api)
+
+        self.btn_eye = VectorEyeButton(w)
+        self.btn_eye.clicked.connect(self._toggle_api_visibility)
+        api_row.addWidget(self.btn_eye)
+
+        self.btn_check_api = QPushButton("Проверить ключ", w)
+        self.btn_check_api.setFixedSize(130, 38)
+        self.btn_check_api.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_check_api.setFont(get_body_font(9.5, demi_bold=True))
+        self.btn_check_api.setStyleSheet("""
+            QPushButton {
+                background-color: #222228;
+                color: #E6E6EE;
+                border: 1px solid #363640;
+                border-radius: 8px;
+            }
+            QPushButton:hover {
+                background-color: #2B2B33;
+                border-color: #4A4A58;
+            }
+        """)
+        self.btn_check_api.clicked.connect(self._check_api_key_async)
+        api_row.addWidget(self.btn_check_api)
+
+        layout.addLayout(api_row)
+
+        lbl_api_link = QLabel('<a href="https://console.groq.com/keys" style="color: #3B82F6; text-decoration: underline;">Получить API-ключ на console.groq.com ↗</a>', w)
+        lbl_api_link.setFont(get_body_font(9.5))
+        lbl_api_link.setOpenExternalLinks(True)
+        layout.addWidget(lbl_api_link)
+
+        layout.addSpacing(6)
+
+        # 2. Микрофон
+        lbl_mic = QLabel("Микрофон", w)
+        lbl_mic.setFont(get_subtitle_font(10.5, demi_bold=True))
+        lbl_mic.setStyleSheet("color: #FFFFFF;")
+        layout.addWidget(lbl_mic)
+
+        self.cmb_mic = QComboBox(w)
+        self.cmb_mic.setFixedHeight(38)
+        self.cmb_mic.setFont(get_body_font(9.5))
+        self.cmb_mic.setStyleSheet("""
+            QComboBox {
+                background-color: #1A1A1E;
+                color: #FFFFFF;
+                border: 1px solid #2C2C34;
+                border-radius: 8px;
+                padding: 0 12px;
+            }
+            QComboBox::drop-down {
+                border: none;
+                width: 24px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1A1A1E;
+                color: #FFFFFF;
+                selection-background-color: #0A3871;
+                border: 1px solid #2C2C34;
+            }
+        """)
+        devices = get_audio_input_devices()
+        self.cmb_mic.addItem("По умолчанию", None)
+        for idx, dev_name in devices:
+            self.cmb_mic.addItem(dev_name, idx)
+        layout.addWidget(self.cmb_mic)
+
+        # Volume bar with vector mic icon
+        meter_row = QHBoxLayout()
+        meter_row.setSpacing(10)
+        meter_row.addWidget(MicIconWidget(w))
+
+        self.pbar_volume = QProgressBar(w)
+        self.pbar_volume.setFixedHeight(6)
+        self.pbar_volume.setTextVisible(False)
+        self.pbar_volume.setStyleSheet("""
+            QProgressBar {
+                background-color: #222228;
+                border-radius: 3px;
+                border: none;
+            }
+            QProgressBar::chunk {
+                background-color: #00E676;
+                border-radius: 3px;
+            }
+        """)
+        self.pbar_volume.setValue(35)
+        meter_row.addWidget(self.pbar_volume)
+        layout.addLayout(meter_row)
+
+        layout.addSpacing(6)
+
+        # 3. Язык распознавания
+        lbl_lang = QLabel("Язык распознавания", w)
+        lbl_lang.setFont(get_subtitle_font(10.5, demi_bold=True))
+        lbl_lang.setStyleSheet("color: #FFFFFF;")
+        layout.addWidget(lbl_lang)
+
+        self.cmb_lang = QComboBox(w)
+        self.cmb_lang.setFixedHeight(38)
+        self.cmb_lang.setFont(get_body_font(9.5))
+        self.cmb_lang.setStyleSheet(self.cmb_mic.styleSheet())
+        self.cmb_lang.addItem("Авто", "auto")
+        self.cmb_lang.addItem("Русский (ru)", "ru")
+        self.cmb_lang.addItem("English (en)", "en")
+        layout.addWidget(self.cmb_lang)
+
+        layout.addSpacing(6)
+
+        # 4. Обработка текста
+        lbl_proc = QLabel("Обработка текста", w)
+        lbl_proc.setFont(get_subtitle_font(10.5, demi_bold=True))
+        lbl_proc.setStyleSheet("color: #FFFFFF;")
+        layout.addWidget(lbl_proc)
+
+        self.cb_voice_punct = ModernCheckBox("Голосовая пунктуация", True, w)
+        self.cb_trailing_space = ModernCheckBox("Завершающий пробел", False, w)
+        layout.addWidget(self.cb_voice_punct)
+        layout.addWidget(self.cb_trailing_space)
+
+        layout.addStretch()
+        return w
+
+    def _create_hotkeys_page(self) -> QWidget:
+        """Tab 2: Горячие клавиши (Mockup 3)"""
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(28, 22, 28, 20)
+        layout.setSpacing(14)
+
+        # 1. Клавиша записи
+        lbl_hk = QLabel("Клавиша записи", w)
+        lbl_hk.setFont(get_subtitle_font(10.5, demi_bold=True))
+        lbl_hk.setStyleSheet("color: #FFFFFF;")
+        layout.addWidget(lbl_hk)
+
+        hk_row = QHBoxLayout()
+        hk_row.setSpacing(10)
+
+        self.lbl_current_key = QLabel("F8", w)
+        self.lbl_current_key.setFixedHeight(40)
+        self.lbl_current_key.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_current_key.setFont(get_mono_font(11, bold=True))
+        self.lbl_current_key.setStyleSheet("""
+            background-color: #1A1A1E;
+            color: #FFFFFF;
+            border: 1px solid #2C2C34;
+            border-radius: 8px;
+        """)
+        hk_row.addWidget(self.lbl_current_key, stretch=1)
+
+        self.btn_rebind = QPushButton("↻  Переназначить", w)
+        self.btn_rebind.setFixedSize(145, 40)
+        self.btn_rebind.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_rebind.setFont(get_body_font(9.5, demi_bold=True))
+        self.btn_rebind.setStyleSheet("""
+            QPushButton {
+                background-color: #222228;
+                color: #E6E6EE;
+                border: 1px solid #363640;
+                border-radius: 8px;
+            }
+            QPushButton:hover {
+                background-color: #2B2B33;
+                border-color: #4A4A58;
+            }
+        """)
+        self.btn_rebind.clicked.connect(self._start_listening_key)
+        hk_row.addWidget(self.btn_rebind)
+        layout.addLayout(hk_row)
+
+        lbl_hk_hint = QLabel("Нажмите новую клавишу, чтобы изменить сочетание.", w)
+        lbl_hk_hint.setFont(get_body_font(9.0))
+        lbl_hk_hint.setStyleSheet("color: #70707B;")
+        layout.addWidget(lbl_hk_hint)
+
+        layout.addSpacing(6)
+
+        # 2. Режим активации
+        lbl_mode = QLabel("Режим активации", w)
+        lbl_mode.setFont(get_subtitle_font(10.5, demi_bold=True))
+        lbl_mode.setStyleSheet("color: #FFFFFF;")
+        layout.addWidget(lbl_mode)
+
+        seg_box = QFrame(w)
+        seg_box.setFixedHeight(42)
+        seg_box.setStyleSheet("""
+            QFrame {
+                background-color: #1A1A1E;
+                border: 1px solid #2C2C34;
+                border-radius: 8px;
+            }
+        """)
+        seg_layout = QHBoxLayout(seg_box)
+        seg_layout.setContentsMargins(4, 4, 4, 4)
+        seg_layout.setSpacing(4)
+
+        self.btn_mode_hold = QPushButton("Удерживать клавишу", seg_box)
+        self.btn_mode_toggle = QPushButton("Одно нажатие", seg_box)
+
+        for b in [self.btn_mode_hold, self.btn_mode_toggle]:
+            b.setFixedHeight(32)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
+            b.setFont(get_body_font(9.5, demi_bold=True))
+
+        self.btn_mode_hold.clicked.connect(lambda: self._set_activation_mode("hold"))
+        self.btn_mode_toggle.clicked.connect(lambda: self._set_activation_mode("toggle"))
+        seg_layout.addWidget(self.btn_mode_hold)
+        seg_layout.addWidget(self.btn_mode_toggle)
+        layout.addWidget(seg_box)
+
+        lbl_mode_hint = QLabel("«Удерживать» — запись идёт, пока клавиша зажата. «Одно нажатие» — старт и стоп разными нажатиями.", w)
+        lbl_mode_hint.setWordWrap(True)
+        lbl_mode_hint.setFont(get_body_font(9.0))
+        lbl_mode_hint.setStyleSheet("color: #70707B;")
+        layout.addWidget(lbl_mode_hint)
+
+        layout.addSpacing(6)
+
+        # 3. Дополнительные сочетания
+        lbl_extra = QLabel("Дополнительные сочетания", w)
+        lbl_extra.setFont(get_subtitle_font(10.5, demi_bold=True))
+        lbl_extra.setStyleSheet("color: #FFFFFF;")
+        layout.addWidget(lbl_extra)
+
+        layout.addWidget(self._create_hotkey_card("Отменить последнюю запись", "Esc", w))
+        layout.addWidget(self._create_hotkey_card("Открыть настройки", "Ctrl+Shift+V", w))
+
+        layout.addSpacing(6)
+
+        # 4. Checkbox
+        self.cb_block_hotkey = ModernCheckBox("Блокировать клавишу в других приложениях", True, w)
+        layout.addWidget(self.cb_block_hotkey)
+
+        layout.addStretch()
+        return w
+
+    def _create_general_page(self) -> QWidget:
+        """Tab 3: Общее (Mockup 2)"""
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(28, 22, 28, 20)
+        layout.setSpacing(14)
+
+        # 1. Оформление виджета
+        lbl_theme = QLabel("Оформление виджета", w)
+        lbl_theme.setFont(get_subtitle_font(10.5, demi_bold=True))
+        lbl_theme.setStyleSheet("color: #FFFFFF;")
+        layout.addWidget(lbl_theme)
+
+        theme_row = QHBoxLayout()
+        theme_row.setSpacing(12)
+
+        self.card_theme_dark = CustomThemeCard("emerald", "Тёмная", "#10B981", is_active=True, parent=w)
+        self.card_theme_light = CustomThemeCard("cyan", "Светлая", "#06B6D4", is_active=False, parent=w)
+        self.card_theme_minimal = CustomThemeCard("claude", "Минимал", "#E2555F", is_active=False, parent=w)
+
+        self.theme_cards = [self.card_theme_dark, self.card_theme_light, self.card_theme_minimal]
+        for c in self.theme_cards:
+            c.clicked.connect(lambda checked=False, card=c: self._select_theme_card(card.theme_id))
+            theme_row.addWidget(c)
+
+        layout.addLayout(theme_row)
+        layout.addSpacing(6)
+
+        # 2. Поведение системы
+        lbl_sys = QLabel("Поведение системы", w)
+        lbl_sys.setFont(get_subtitle_font(10.5, demi_bold=True))
+        lbl_sys.setStyleSheet("color: #FFFFFF;")
+        layout.addWidget(lbl_sys)
+
+        self.cb_sound = ModernCheckBox("Звуковые сигналы", True, w)
+        self.cb_autostart = ModernCheckBox("Автозапуск с Windows", False, w)
+        self.cb_stream = ModernCheckBox("Потоковый предпросмотр", True, w)
+        self.cb_updates = ModernCheckBox("Проверка обновлений", True, w)
+        self.cb_tray_close = ModernCheckBox("Сворачивать в трей при закрытии", True, w)
+
+        layout.addWidget(self.cb_sound)
+        layout.addWidget(self.cb_autostart)
+        layout.addWidget(self.cb_stream)
+        layout.addWidget(self.cb_updates)
+        layout.addWidget(self.cb_tray_close)
+
+        layout.addSpacing(6)
+
+        # 3. Хранение данных
+        lbl_data = QLabel("Хранение данных", w)
+        lbl_data.setFont(get_subtitle_font(10.5, demi_bold=True))
+        lbl_data.setStyleSheet("color: #FFFFFF;")
+        layout.addWidget(lbl_data)
+
+        card_cache = QFrame(w)
+        card_cache.setFixedHeight(44)
+        card_cache.setStyleSheet("""
+            QFrame {
+                background-color: #1A1A1E;
+                border: 1px solid #282830;
+                border-radius: 8px;
+            }
+        """)
+        cc_layout = QHBoxLayout(card_cache)
+        cc_layout.setContentsMargins(14, 0, 10, 0)
+
+        sz = get_cache_size_mb()
+        self.lbl_cache_info = QLabel(f"Кэш распознавания — {sz} МБ", card_cache)
+        self.lbl_cache_info.setFont(get_body_font(9.5))
+        self.lbl_cache_info.setStyleSheet("color: #E6E6EE; border: none;")
+        cc_layout.addWidget(self.lbl_cache_info)
+        cc_layout.addStretch()
+
+        btn_clear = QPushButton("Очистить", card_cache)
+        btn_clear.setFixedSize(90, 28)
+        btn_clear.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_clear.setFont(get_body_font(9.0))
+        btn_clear.setStyleSheet("""
+            QPushButton {
+                background-color: #222228;
+                color: #E6E6EE;
+                border: 1px solid #363640;
+                border-radius: 6px;
+            }
+            QPushButton:hover {
+                background-color: #2B2B33;
+                border-color: #4A4A58;
+            }
+        """)
+        btn_clear.clicked.connect(self._clear_cache_clicked)
+        cc_layout.addWidget(btn_clear)
+        layout.addWidget(card_cache)
+
+        layout.addStretch()
+        return w
+
+    def _create_about_page(self) -> QWidget:
+        """Tab 4: О приложении (Mockup 1)"""
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(28, 26, 28, 20)
+        layout.setSpacing(14)
+
+        # Top App Identity with vector mic icon
+        top_box = QVBoxLayout()
+        top_box.setSpacing(6)
+        top_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        app_logo = AppLogoWidget(w)
+        top_box.addWidget(app_logo, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        title_lbl = QLabel("VoiceTyping", w)
+        title_lbl.setFont(get_title_font(14, bold=True))
+        title_lbl.setStyleSheet("color: #FFFFFF;")
+        title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        top_box.addWidget(title_lbl)
+
+        ver_lbl = QLabel(f"Версия {APP_VERSION} (сборка 1187)", w)
+        ver_lbl.setFont(get_body_font(9.5))
+        ver_lbl.setStyleSheet("color: #8E8E98;")
+        ver_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        top_box.addWidget(ver_lbl)
+
+        layout.addLayout(top_box)
+        layout.addSpacing(10)
+
+        # Check Updates Card
+        card_upd = QFrame(w)
+        card_upd.setFixedHeight(44)
+        card_upd.setStyleSheet("""
+            QFrame {
+                background-color: #1A1A1E;
+                border: 1px solid #282830;
+                border-radius: 8px;
+            }
+        """)
+        cu_layout = QHBoxLayout(card_upd)
+        cu_layout.setContentsMargins(14, 0, 10, 0)
+
+        lbl_upd = QLabel("Проверка обновлений", card_upd)
+        lbl_upd.setFont(get_body_font(9.5))
+        lbl_upd.setStyleSheet("color: #E6E6EE; border: none;")
+        cu_layout.addWidget(lbl_upd)
+        cu_layout.addStretch()
+
+        btn_chk = QPushButton("Проверить", card_upd)
+        btn_chk.setFixedSize(100, 28)
+        btn_chk.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_chk.setFont(get_body_font(9.0))
+        btn_chk.setStyleSheet("""
+            QPushButton {
+                background-color: #222228;
+                color: #E6E6EE;
+                border: 1px solid #363640;
+                border-radius: 6px;
+            }
+            QPushButton:hover {
+                background-color: #2B2B33;
+                border-color: #4A4A58;
+            }
+        """)
+        btn_chk.clicked.connect(self._manual_check_updates)
+        cu_layout.addWidget(btn_chk)
+        layout.addWidget(card_upd)
+
+        layout.addSpacing(6)
+
+        # Links
+        links = [
+            ("Журнал изменений", "https://github.com/wesiks/VoiceTyping/releases"),
+            ("Политика конфиденциальности", "https://github.com/wesiks/VoiceTyping#readme"),
+            ("Условия использования", "https://github.com/wesiks/VoiceTyping/blob/main/LICENSE"),
+            ("Сообщить о проблеме", "https://github.com/wesiks/VoiceTyping/issues")
+        ]
+        for link_text, link_url in links:
+            lbl = QLabel(f'<a href="{link_url}" style="color: #3B82F6; text-decoration: underline;">{link_text}</a>', w)
+            lbl.setFont(get_body_font(9.5))
+            lbl.setOpenExternalLinks(True)
+            layout.addWidget(lbl)
+
+        layout.addStretch()
+
+        # Copyright
+        lbl_copy = QLabel("© 2026 VoiceTyping. Все права защищены.", w)
+        lbl_copy.setFont(get_body_font(9.0))
+        lbl_copy.setStyleSheet("color: #5E5E68;")
+        lbl_copy.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(lbl_copy)
+
+        return w
+
+    # ------------------ UI HELPERS ------------------
+
+    def _create_hotkey_card(self, title: str, key_badge: str, parent: QWidget) -> QFrame:
+        card = QFrame(parent)
+        card.setFixedHeight(44)
+        card.setStyleSheet("""
+            QFrame {
+                background-color: #1A1A1E;
+                border: 1px solid #282830;
+                border-radius: 8px;
+            }
+        """)
+        c_layout = QHBoxLayout(card)
+        c_layout.setContentsMargins(14, 0, 14, 0)
+
+        lbl_t = QLabel(title, card)
+        lbl_t.setFont(get_body_font(9.5))
+        lbl_t.setStyleSheet("color: #E6E6EE; border: none;")
+        c_layout.addWidget(lbl_t)
+        c_layout.addStretch()
+
+        lbl_b = QLabel(key_badge, card)
+        lbl_b.setFont(get_mono_font(9.0, bold=True))
+        lbl_b.setStyleSheet("""
+            background-color: #26262E;
+            color: #C8C8D4;
+            border: 1px solid #3A3A44;
+            border-radius: 4px;
+            padding: 3px 8px;
+        """)
+        c_layout.addWidget(lbl_b)
+        return card
+
+    # ------------------ LOGIC & EVENT HANDLING ------------------
+
+    def _switch_tab(self, index: int):
+        for idx, btn in enumerate(self.nav_buttons):
+            btn.set_active(idx == index)
+        self.stack.setCurrentIndex(index)
+
+    def _select_theme_card(self, theme_id: str):
         self.settings["theme"] = theme_id
-        self.theme = get_theme(theme_id)
-        
-        self.card.set_theme(self.theme)
-        for btn in self.theme_buttons:
-            btn.set_active(btn.theme_id == theme_id)
-
-        self.toggle_sound.set_accent(self.theme["accent"])
-        self.toggle_autostart.set_accent(self.theme["accent"])
-        self.toggle_stream.set_accent(self.theme["accent"])
-        self.toggle_updates.set_accent(self.theme["accent"])
-        self._update_progress_style(self.theme["accent"])
-        self.lbl_link.setText(f'<a style="color: {self.theme["accent"]}; text-decoration: underline;" href="https://console.groq.com/keys">Получить бесплатный ключ на console.groq.com/keys</a>')
-        self.btn_save.setStyleSheet(f"background-color: {self.theme['accent']};")
-        
+        for c in self.theme_cards:
+            c.set_active(c.theme_id == theme_id)
         self.theme_changed.emit(theme_id)
 
-    def _check_api_key(self):
-        key = self.api_input.text().strip()
+    def _set_activation_mode(self, mode: str):
+        self.settings["activation_mode"] = mode
+        if mode == "hold":
+            self.btn_mode_hold.setStyleSheet("background-color: #0A3871; color: #FFFFFF; border: none; border-radius: 6px;")
+            self.btn_mode_toggle.setStyleSheet("background-color: transparent; color: #8E8E98; border: none;")
+        else:
+            self.btn_mode_hold.setStyleSheet("background-color: transparent; color: #8E8E98; border: none;")
+            self.btn_mode_toggle.setStyleSheet("background-color: #0A3871; color: #FFFFFF; border: none; border-radius: 6px;")
+
+    def _toggle_api_visibility(self):
+        if self.inp_api.echoMode() == QLineEdit.EchoMode.Password:
+            self.inp_api.setEchoMode(QLineEdit.EchoMode.Normal)
+            self.btn_eye.set_open(True)
+        else:
+            self.inp_api.setEchoMode(QLineEdit.EchoMode.Password)
+            self.btn_eye.set_open(False)
+
+    def _check_api_key_async(self):
+        key = self.inp_api.text().strip()
         if not key:
-            self._show_toast("Введите ключ для проверки", is_error=True)
+            self.btn_check_api.setText("Введите ключ")
             return
 
-        self.btn_test.setEnabled(False)
-        self.btn_test.setText("Проверка...")
-        self.api_progress.setVisible(True)
-        self.api_progress.setValue(12)
-        self._update_progress_style(self.theme["accent"])
-        self.toast_label.setText("")
-
-        self._progress_target = 85
-        self._progress_current = 12
-
-        def _step_anim():
-            if hasattr(self, "_progress_current") and self._progress_current < self._progress_target:
-                self._progress_current += max(1, int((self._progress_target - self._progress_current) * 0.22))
-                self.api_progress.setValue(self._progress_current)
-
-        if hasattr(self, "_anim_timer") and self._anim_timer.isActive():
-            self._anim_timer.stop()
-        self._anim_timer = QTimer(self)
-        self._anim_timer.setInterval(40)
-        self._anim_timer.timeout.connect(_step_anim)
-        self._anim_timer.start()
+        self.btn_check_api.setText("Проверка...")
+        self.btn_check_api.setEnabled(False)
 
         def _worker():
-            status = 0
-            err_msg = ""
+            status_ok = False
+            msg = ""
             try:
                 r = requests.get(
                     "https://api.groq.com/openai/v1/models",
                     headers={
                         "Authorization": f"Bearer {key}",
-                        "User-Agent": "VoiceTyping/1.3.0"
+                        "User-Agent": f"VoiceTyping/{APP_VERSION}"
                     },
-                    timeout=3.5
+                    timeout=4.0
                 )
-                status = r.status_code
-            except requests.exceptions.Timeout:
-                err_msg = "Превышено время ожидания (проверьте интернет)"
-            except requests.exceptions.ConnectionError:
-                err_msg = "Ошибка подключения к Groq API"
-            except Exception as e:
-                err_msg = str(e)
+                if r.status_code == 200:
+                    status_ok = True
+                elif r.status_code == 401:
+                    msg = "Неверный ключ"
+                else:
+                    msg = f"Код {r.status_code}"
+            except Exception:
+                msg = "Ошибка сети"
 
-            QTimer.singleShot(0, lambda: self._on_check_api_done(status, err_msg))
+            def _done():
+                self.btn_check_api.setEnabled(True)
+                if status_ok:
+                    self.btn_check_api.setText("✓ Действителен")
+                    self.btn_check_api.setStyleSheet("background-color: #064E3B; color: #34D399; border: 1px solid #059669; border-radius: 8px;")
+                else:
+                    self.btn_check_api.setText(msg or "Ошибка")
+                    self.btn_check_api.setStyleSheet("background-color: #4C0519; color: #FB7185; border: 1px solid #E11D48; border-radius: 8px;")
+
+            QTimer.singleShot(0, _done)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_check_api_done(self, status: int, err_msg: str):
-        if hasattr(self, "_anim_timer") and self._anim_timer.isActive():
-            self._anim_timer.stop()
+    def _start_listening_key(self):
+        self._is_listening_hotkey = True
+        self.lbl_current_key.setText("Нажмите клавишу...")
+        self.lbl_current_key.setStyleSheet("""
+            background-color: #0A3871;
+            color: #FFFFFF;
+            border: 1.5px solid #3B82F6;
+            border-radius: 8px;
+        """)
 
-        self.btn_test.setEnabled(True)
-        self.btn_test.setText("Проверить")
-        self.api_progress.setValue(100)
+    def keyPressEvent(self, event):
+        if self._is_listening_hotkey:
+            key = event.key()
+            from PyQt6.QtCore import Qt as QtCoreQt
+            key_map = {
+                QtCoreQt.Key.Key_F1: "F1", QtCoreQt.Key.Key_F2: "F2", QtCoreQt.Key.Key_F3: "F3",
+                QtCoreQt.Key.Key_F4: "F4", QtCoreQt.Key.Key_F5: "F5", QtCoreQt.Key.Key_F6: "F6",
+                QtCoreQt.Key.Key_F7: "F7", QtCoreQt.Key.Key_F8: "F8", QtCoreQt.Key.Key_F9: "F9",
+                QtCoreQt.Key.Key_F10: "F10", QtCoreQt.Key.Key_F11: "F11", QtCoreQt.Key.Key_F12: "F12",
+                QtCoreQt.Key.Key_CapsLock: "Caps_Lock", QtCoreQt.Key.Key_ScrollLock: "Scroll_Lock",
+                QtCoreQt.Key.Key_Pause: "Pause", QtCoreQt.Key.Key_Insert: "Insert"
+            }
+            res_key = key_map.get(key)
+            if not res_key and event.text():
+                res_key = event.text().upper()
 
-        if status == 200:
-            self._update_progress_style("#34D399")
-            self._show_toast("Ключ успешно подтвержден")
-            QTimer.singleShot(2200, lambda: self.api_progress.setVisible(False))
-        elif status == 401:
-            self._update_progress_style("#F87171")
-            self._show_toast("Неверный ключ (код 401)", is_error=True)
-            QTimer.singleShot(3000, lambda: self.api_progress.setVisible(False))
-        elif status == 403:
-            self._update_progress_style("#FB923C")
-            self._show_toast("Доступ к Groq ограничен (код 403). Включите VPN.", is_error=True)
-            QTimer.singleShot(4500, lambda: self.api_progress.setVisible(False))
-        elif err_msg:
-            self._update_progress_style("#F87171")
-            self._show_toast(err_msg, is_error=True)
-            QTimer.singleShot(3000, lambda: self.api_progress.setVisible(False))
-        else:
-            self._update_progress_style("#F87171")
-            self._show_toast(f"Ответ сервера: код {status}", is_error=True)
-            QTimer.singleShot(3000, lambda: self.api_progress.setVisible(False))
+            if res_key:
+                self.settings["hotkey"] = res_key.lower()
+                self.lbl_current_key.setText(res_key)
+                self.lbl_current_key.setStyleSheet("""
+                    background-color: #1A1A1E;
+                    color: #FFFFFF;
+                    border: 1px solid #2C2C34;
+                    border-radius: 8px;
+                """)
+                self._is_listening_hotkey = False
+            return
+        super().keyPressEvent(event)
 
-    def _on_check_update_clicked(self):
-        self.btn_check_update.setEnabled(False)
-        self.btn_check_update.setText("Проверка...")
-        self.toast_label.setText("")
+    def _clear_cache_clicked(self):
+        clear_cache_dir()
+        self.lbl_cache_info.setText("Кэш распознавания — 0.0 МБ")
+
+    def _manual_check_updates(self):
+        self.lbl_status.setText("Проверка обновлений...")
+        self.lbl_status.setStyleSheet("color: #A4A4B0;")
 
         def _worker():
             res = check_github_update(current_version=APP_VERSION)
-            QTimer.singleShot(0, lambda: self._handle_update_result(res))
+            def _done():
+                if res.get("has_update"):
+                    latest = res.get("latest_version")
+                    self.lbl_status.setText(f"Доступно обновление: v{latest}")
+                    self.lbl_status.setStyleSheet("color: #60A5FA;")
+                    url = res.get("download_url") or res.get("release_url")
+                    open_release_page(url)
+                elif res.get("error"):
+                    self.lbl_status.setText(f"Ошибка проверки: {res.get('error')}")
+                    self.lbl_status.setStyleSheet("color: #F87171;")
+                else:
+                    self.lbl_status.setText("✓  Установлена последняя версия")
+                    self.lbl_status.setStyleSheet("color: #34D399;")
+            QTimer.singleShot(0, _done)
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _handle_update_result(self, res: dict):
-        self.btn_check_update.setEnabled(True)
-        self.btn_check_update.setText("Проверить обновления")
+    def _load_values(self):
+        s = self.settings
+        self.inp_api.setText(s.get("groq_api_key", ""))
+        self.lbl_current_key.setText(s.get("hotkey", "f8").upper())
 
-        if res.get("has_update"):
-            latest = res.get("latest_version")
-            self._show_toast(f"Доступно обновление v{latest}!")
-            open_release_page(res.get("download_url") or res.get("release_url"))
-        elif res.get("error"):
-            self._show_toast(f"{res.get('error')}", is_error=True)
-        else:
-            self._show_toast(f"У вас актуальная версия (v{APP_VERSION})")
+        mode = s.get("activation_mode", "hold")
+        self._set_activation_mode(mode)
 
-    def _save(self):
-        self.settings["groq_api_key"] = self.api_input.text().strip()
-        self.settings["hotkey"] = self.combo_hotkey.currentText().lower()
-        self.settings["sound_enabled"] = self.toggle_sound.isChecked()
-        self.settings["stream_preview"] = self.toggle_stream.isChecked()
-        self.settings["check_updates"] = self.toggle_updates.isChecked()
-        
-        autostart = self.toggle_autostart.isChecked()
-        self.settings["autostart"] = autostart
-        set_windows_autostart(autostart)
+        # Theme card selection
+        current_theme = s.get("theme", "claude")
+        for c in self.theme_cards:
+            c.set_active(c.theme_id == current_theme)
 
+        # Checkboxes
+        self.cb_sound.setChecked(s.get("sound_enabled", True))
+        self.cb_autostart.setChecked(s.get("autostart", False))
+        self.cb_stream.setChecked(s.get("stream_preview", True))
+        self.cb_updates.setChecked(s.get("check_updates", True))
+        self.cb_tray_close.setChecked(s.get("minimize_to_tray", True))
+        self.cb_voice_punct.setChecked(s.get("voice_punctuation", True))
+        self.cb_trailing_space.setChecked(s.get("trailing_space", False))
+        self.cb_block_hotkey.setChecked(s.get("block_hotkey", True))
+
+        # Language
+        lang = s.get("language", "ru")
+        idx = self.cmb_lang.findData(lang)
+        if idx != -1:
+            self.cmb_lang.setCurrentIndex(idx)
+
+        # Audio device
+        dev_idx = s.get("audio_device", None)
+        if dev_idx is not None:
+            c_idx = self.cmb_mic.findData(dev_idx)
+            if c_idx != -1:
+                self.cmb_mic.setCurrentIndex(c_idx)
+
+    def _save_and_close(self):
+        self.settings["groq_api_key"] = self.inp_api.text().strip()
+        self.settings["sound_enabled"] = self.cb_sound.isChecked()
+        self.settings["autostart"] = self.cb_autostart.isChecked()
+        self.settings["stream_preview"] = self.cb_stream.isChecked()
+        self.settings["check_updates"] = self.cb_updates.isChecked()
+        self.settings["minimize_to_tray"] = self.cb_tray_close.isChecked()
+        self.settings["voice_punctuation"] = self.cb_voice_punct.isChecked()
+        self.settings["trailing_space"] = self.cb_trailing_space.isChecked()
+        self.settings["block_hotkey"] = self.cb_block_hotkey.isChecked()
+        self.settings["language"] = self.cmb_lang.currentData() or "ru"
+        self.settings["audio_device"] = self.cmb_mic.currentData()
+
+        set_windows_autostart(self.settings["autostart"])
         save_settings(self.settings)
         self.settings_saved.emit(self.settings)
-        self._show_toast("Настройки сохранены")
-        QTimer.singleShot(600, self.accept)
+        self.close()
+
+    # Window dragging
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and event.position().y() < 50:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+
+    def mouseMoveEvent(self, event):
+        if self._drag_pos and event.buttons() == Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None

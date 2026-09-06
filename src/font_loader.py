@@ -66,7 +66,7 @@ def init_custom_fonts():
 def get_title_font(size: int = 13, bold: bool = True) -> QFont:
     """Distinctive geometric display font (Manrope) for top headers and dialog titles."""
     init_custom_fonts()
-    font = QFont(_TITLE_FAMILY, size)
+    font = QFont(_TITLE_FAMILY, int(round(size)))
     font.setWeight(QFont.Weight.Bold if bold else QFont.Weight.DemiBold)
     font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
     return font
@@ -74,7 +74,7 @@ def get_title_font(size: int = 13, bold: bool = True) -> QFont:
 def get_subtitle_font(size: int = 11, demi_bold: bool = True) -> QFont:
     """Semi-bold modern font (Manrope) for card headers, section titles, and badges."""
     init_custom_fonts()
-    font = QFont(_TITLE_FAMILY, size)
+    font = QFont(_TITLE_FAMILY, int(round(size)))
     font.setWeight(QFont.Weight.DemiBold if demi_bold else QFont.Weight.Medium)
     font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
     return font
@@ -82,7 +82,7 @@ def get_subtitle_font(size: int = 11, demi_bold: bool = True) -> QFont:
 def get_body_font(size: int = 10, bold: bool = False, demi_bold: bool = False) -> QFont:
     """Clean, high-legibility interface grotesque (Inter) for labels, explanations, and controls."""
     init_custom_fonts()
-    font = QFont(_BODY_FAMILY, size)
+    font = QFont(_BODY_FAMILY, int(round(size)))
     if bold:
         font.setWeight(QFont.Weight.Bold)
     elif demi_bold:
@@ -95,7 +95,7 @@ def get_body_font(size: int = 10, bold: bool = False, demi_bold: bool = False) -
 def get_mono_font(size: int = 10, bold: bool = False) -> QFont:
     """Developer-grade monospaced font (JetBrains Mono) for hotkeys, code, and API keys."""
     init_custom_fonts()
-    font = QFont(_MONO_FAMILY, size)
+    font = QFont(_MONO_FAMILY, int(round(size)))
     if bold:
         font.setWeight(QFont.Weight.Bold)
     font.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)

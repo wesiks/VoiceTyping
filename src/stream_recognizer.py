@@ -145,7 +145,7 @@ class StreamRecognizer:
             self.audio_queue.put(None)
 
         if self._worker_thread and self._worker_thread.is_alive():
-            self._worker_thread.join(timeout=0.3)
+            self._worker_thread.join(timeout=0.8)
 
         result_text = ""
         if was_running and self.recognizer is not None:
@@ -164,16 +164,18 @@ class StreamRecognizer:
 
     def _worker(self):
         """Worker thread to process audio chunks with zero UI lag."""
-        while self._running:
+        while True:
             try:
-                data = self.audio_queue.get(timeout=0.1)
+                data = self.audio_queue.get(timeout=0.08)
             except queue.Empty:
+                if not self._running:
+                    break
                 continue
 
             if data is None:
                 break
 
-            if not self._running or self.recognizer is None:
+            if self.recognizer is None:
                 break
 
             try:

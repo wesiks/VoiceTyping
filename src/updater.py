@@ -4,7 +4,7 @@ import requests
 import webbrowser
 from typing import Optional, Dict, Any, Tuple
 
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
 GITHUB_REPO = "wesiks/VoiceTyping"
 RELEASES_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 

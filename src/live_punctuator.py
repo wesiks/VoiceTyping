@@ -19,7 +19,7 @@ VOICE_PUNCTUATION = [
     (r"\b(с новой строки|новый абзац)\b", "\n"),
 ]
 
-def format_live_text(raw_text: str) -> str:
+def format_live_text(raw_text: str, apply_voice_punct: bool = True) -> str:
     """
     Transforms raw unpunctuated ASR stream into clean, readable text
     with capital letters, commas, and voice punctuation commands.
@@ -29,8 +29,9 @@ def format_live_text(raw_text: str) -> str:
 
     text = raw_text.strip()
 
-    for pattern, replacement in VOICE_PUNCTUATION:
-        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    if apply_voice_punct:
+        for pattern, replacement in VOICE_PUNCTUATION:
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
 
     text = re.sub(r"\s+([,.:;?!])", r"\1", text)
     text = re.sub(r"([,.:;?!])(?=[^\s\d])", r"\1 ", text)

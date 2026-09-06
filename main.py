@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import threading
 import webbrowser
 from pathlib import Path
@@ -47,7 +48,7 @@ from updater import APP_VERSION, check_github_update, open_release_page
 from memory_manager import trim_process_memory
 
 app_settings = load_settings()
-recorder = AudioRecorder()
+recorder = AudioRecorder(device=app_settings.get("audio_device", None))
 stream_recognizer = None
 bridge = None
 hud = None
@@ -57,6 +58,9 @@ settings_win = None
 is_recording = False
 state_lock = threading.Lock()
 current_target_key = None
+current_session_id = 0
+last_press_time = 0.0
+last_release_time = 0.0
 
 def parse_target_key(hotkey_str: str):
     name = hotkey_str.lower().strip()
@@ -93,49 +97,60 @@ def is_target_key(key) -> bool:
 
 def on_live_text(raw_text: str):
     if bridge and raw_text:
-        formatted = format_live_text(raw_text)
+        apply_vp = app_settings.get("voice_punctuation", True)
+        formatted = format_live_text(raw_text, apply_voice_punct=apply_vp)
         bridge.sig_live_text.emit(formatted)
 
-def _process_final_audio_worker(wav_bytes: bytes, fallback_raw_text: str):
+def _process_final_audio_worker(session_id: int, wav_bytes: bytes, fallback_raw_text: str):
     final_text = ""
     api_key = app_settings.get("groq_api_key", "").strip() or config.GROQ_API_KEY
 
     try:
+        if session_id != current_session_id or is_recording:
+            return
+
         if bridge:
             bridge.sig_processing.emit()
 
         if wav_bytes and api_key:
-            final_text = transcribe_audio(wav_bytes)
+            final_text = transcribe_audio(wav_bytes, api_key=api_key)
     except STTError as e:
         print(f"\n[INFO] Groq API: {e}. Переключение на локальный текст...")
     except Exception as e:
         print(f"\n[INFO] Ошибка: {e}. Переключение на локальный текст...")
 
-    if not final_text and fallback_raw_text:
-        final_text = format_live_text(fallback_raw_text)
+    if session_id != current_session_id or is_recording:
+        return
+
+    apply_vp = app_settings.get("voice_punctuation", True)
+    if final_text:
+        final_text = format_live_text(final_text, apply_voice_punct=apply_vp)
+    elif fallback_raw_text:
+        final_text = format_live_text(fallback_raw_text, apply_voice_punct=apply_vp)
 
     if final_text:
+        if app_settings.get("trailing_space", False):
+            final_text += " "
         print(f"\n[OK] \"{final_text}\"")
         insert_text(final_text)
-        if bridge:
+        if bridge and session_id == current_session_id and not is_recording:
             bridge.sig_done.emit(final_text)
     else:
         if app_settings.get("sound_enabled", True):
             play_error_sound()
-        if bridge:
+        if bridge and session_id == current_session_id and not is_recording:
             bridge.sig_hide.emit()
 
     threading.Timer(2.0, trim_process_memory).start()
 
-def on_press(key):
-    global is_recording
-    if not is_target_key(key):
-        return
-
+def _start_recording(now: float):
+    global is_recording, current_session_id, last_press_time
     with state_lock:
         if is_recording:
             return
         is_recording = True
+        current_session_id += 1
+        last_press_time = now
 
     if app_settings.get("sound_enabled", True):
         play_start_sound(volume=0.30)
@@ -149,31 +164,71 @@ def on_press(key):
 
     recorder.start(
         chunk_callback=stream_recognizer.feed_audio if use_stream else None,
-        level_callback=bridge.sig_audio_level.emit if bridge else None
+        level_callback=bridge.sig_audio_level.emit if bridge else None,
+        device=app_settings.get("audio_device", None)
     )
 
-def on_release(key):
-    global is_recording
-    if not is_target_key(key):
-        return
-
+def _stop_recording(now: float):
+    global is_recording, last_release_time
     with state_lock:
         if not is_recording:
             return
         is_recording = False
-
-    if app_settings.get("sound_enabled", True):
-        play_stop_sound(volume=0.25)
+        last_release_time = now
+        session_id = current_session_id
+        duration = now - last_press_time
 
     use_stream = app_settings.get("stream_preview", True) and stream_recognizer is not None
     wav_bytes = recorder.stop()
     fallback_raw_text = stream_recognizer.stop() if use_stream else ""
 
+    if duration < 0.22 or (not wav_bytes and not fallback_raw_text):
+        if bridge and session_id == current_session_id:
+            bridge.sig_hide.emit()
+        return
+
+    if app_settings.get("sound_enabled", True):
+        play_stop_sound(volume=0.25)
+
     threading.Thread(
         target=_process_final_audio_worker,
-        args=(wav_bytes, fallback_raw_text),
+        args=(session_id, wav_bytes, fallback_raw_text),
         daemon=True
     ).start()
+
+def on_press(key):
+    if not is_target_key(key):
+        return
+
+    now = time.time()
+    mode = app_settings.get("activation_mode", "hold")
+
+    if mode == "toggle":
+        if now - last_press_time < 0.20:
+            return
+        with state_lock:
+            rec = is_recording
+        if rec:
+            _stop_recording(now)
+        else:
+            _start_recording(now)
+        return
+
+    if now - last_release_time < 0.10:
+        return
+
+    _start_recording(now)
+
+def on_release(key):
+    if not is_target_key(key):
+        return
+
+    mode = app_settings.get("activation_mode", "hold")
+    if mode == "toggle":
+        return
+
+    now = time.time()
+    _stop_recording(now)
 
 def open_settings_dialog():
     global settings_win
@@ -198,6 +253,7 @@ def on_settings_saved(new_settings: dict):
     app_settings = new_settings
     current_target_key = parse_target_key(app_settings.get("hotkey", "f8"))
     config.GROQ_API_KEY = app_settings.get("groq_api_key", "").strip()
+    recorder.set_device(app_settings.get("audio_device", None))
     on_theme_changed(app_settings.get("theme", "claude"))
     if hud:
         hud.set_hotkey(app_settings.get("hotkey", "f8"))
