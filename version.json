@@ -1,0 +1,8 @@
+{
+  "version": "2.5.0",
+  "tag": "v2.5.0",
+  "download_url": "https://github.com/wesiks/VoiceTyping/releases/download/v2.5.0/VoiceTyping_Setup.exe",
+  "release_url": "https://github.com/wesiks/VoiceTyping/releases/tag/v2.5.0",
+  "release_name": "VoiceTyping v2.5.0",
+  "release_notes": "Обновление v2.5.0: исправление мелких ошибок, оптимизация стабильности фоновой службы распознавания и повышение общей производительности."
+}
